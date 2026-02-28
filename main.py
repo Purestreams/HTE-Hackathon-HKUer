@@ -1675,7 +1675,7 @@ async def chat_query():
             return _json_error(f"file not found: {p}", status=404)
         abs_files.append(abs_path)
 
-    # Fake RAG: load all selected files and stuff full context into the prompt.
+    # RAG: load all selected files and stuff full context into the prompt.
     max_bytes = int(os.environ.get("MAX_TEXT_FILE_BYTES", str(2 * 1024 * 1024)))
     max_context_chars = int(os.environ.get("CHAT_CONTEXT_MAX_CHARS", str(60_000)))
     context_parts: List[str] = []

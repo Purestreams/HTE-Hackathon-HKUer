@@ -1,6 +1,6 @@
 # HTE Hackathon: Lighthouse: EduAI
 
-A session-scoped document workflow platform for automated PDF ingestion, mock paper generation, and two-model consensus validation. Features a "fake RAG" streaming chat and PDF export.
+A session-scoped document workflow platform for automated PDF ingestion, mock paper generation, and two-model consensus validation. Features a RAG streaming chat and PDF export.
 
 ## Detailed Summary
 
