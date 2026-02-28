@@ -89,19 +89,7 @@ The resource to generate the mock paper is in `demo/assignment/`, which contains
    ```
    Navigate to `http://localhost:5173`.
 
-## Static HTML Demo
 
-If you just want to preview the UI (no backend, no real actions), a static demo is included in `demo/`.
-
-- Hosted demo: [https://win7.win/HTE-Hackathon-HKUer/demo/index.html](https://win7.win/HTE-Hackathon-HKUer/demo/index.html)
-- 2-minute presentation script: [DEMO_SCRIPT_2MIN.md](DEMO_SCRIPT_2MIN.md)
-- Open `demo/index.html` directly in a browser, or
-- Serve it locally (recommended for consistent asset loading):
-   ```bash
-   cd demo
-   python3 -m http.server 4174 --bind 127.0.0.1
-   ```
-   Then open `http://127.0.0.1:4174/`.
 
 ## Usage Tips
 
