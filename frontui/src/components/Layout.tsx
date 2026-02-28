@@ -1,6 +1,7 @@
 import { Link, NavLink, Outlet } from 'react-router-dom'
 import { useEffect, useState } from 'react'
 import { apiFetch, apiBaseUrl, type Health } from '../lib/api'
+import { SessionSelector } from './SessionSelector'
 
 const navItems = [
   { to: '/', label: 'Dashboard' },
@@ -8,6 +9,7 @@ const navItems = [
   { to: '/ingest/pdf', label: 'PDF Ingest' },
   { to: '/mockpaper', label: 'Mockpaper' },
   { to: '/validate', label: 'Validate' },
+  { to: '/library', label: 'Library' },
   { to: '/snapshots', label: 'Snapshots' },
   { to: '/jobs', label: 'Jobs' },
 ]
@@ -68,6 +70,10 @@ export function Layout() {
             ) : (
               <span>Checking backend…</span>
             )}
+          </div>
+
+          <div className="flex items-center gap-3">
+            <SessionSelector />
           </div>
         </header>
 

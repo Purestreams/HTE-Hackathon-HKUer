@@ -1,11 +1,14 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import { apiFetch, type Categories, type UploadResponse } from '../lib/api'
+import { JobStatusCard } from '../components/JobStatusCard'
+import { saveJob } from '../lib/jobHistory'
 
 export function UploadPage() {
   const [categories, setCategories] = useState<string[]>([])
   const [category, setCategory] = useState('lectureNote')
   const [file, setFile] = useState<File | null>(null)
   const [result, setResult] = useState<UploadResponse | null>(null)
+  const [jobId, setJobId] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
 
@@ -34,6 +37,7 @@ export function UploadPage() {
     setBusy(true)
     setError(null)
     setResult(null)
+    setJobId(null)
 
     try {
       const fd = new FormData()
@@ -42,6 +46,10 @@ export function UploadPage() {
 
       const body = await apiFetch<UploadResponse>('/api/upload', { method: 'POST', body: fd as any })
       setResult(body)
+      if (body.job_id) {
+        setJobId(body.job_id)
+        saveJob({ id: body.job_id, type: 'pdf_ingest', createdAt: new Date().toISOString() })
+      }
     } catch (e: any) {
       setError(String(e?.message ?? e))
     } finally {
@@ -103,6 +111,12 @@ export function UploadPage() {
           <pre className="mt-4 max-h-80 overflow-auto rounded-md bg-gray-50 p-3 text-xs">
             {JSON.stringify(result, null, 2)}
           </pre>
+        )}
+
+        {jobId && (
+          <div className="mt-4">
+            <JobStatusCard jobId={jobId} onMissing={() => setJobId(null)} />
+          </div>
         )}
       </form>
 

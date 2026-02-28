@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { JobStatusCard } from '../components/JobStatusCard'
-import { loadJobs, type JobRef } from '../lib/jobHistory'
+import { loadJobs, removeJob, type JobRef } from '../lib/jobHistory'
 
 export function JobsPage() {
   const [jobs, setJobs] = useState<JobRef[]>([])
@@ -13,6 +13,19 @@ export function JobsPage() {
   }, [])
 
   const selected = useMemo(() => jobs.find((j) => j.id === selectedId) ?? null, [jobs, selectedId])
+
+  function handleMissing(id: string) {
+    removeJob(id)
+    setJobs((prev) => {
+      const next = prev.filter((j) => j.id !== id)
+      // If we just removed the selected job, select the next available.
+      setSelectedId((cur) => {
+        if (cur !== id) return cur
+        return next[0]?.id ?? null
+      })
+      return next
+    })
+  }
 
   return (
     <div className="max-w-6xl space-y-6">
@@ -48,7 +61,9 @@ export function JobsPage() {
           </div>
         </div>
 
-        <div className="lg:col-span-2">{selected ? <JobStatusCard jobId={selected.id} /> : <EmptyPanel />}</div>
+        <div className="lg:col-span-2">
+          {selected ? <JobStatusCard jobId={selected.id} onMissing={() => handleMissing(selected.id)} /> : <EmptyPanel />}
+        </div>
       </div>
     </div>
   )

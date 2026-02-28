@@ -11,6 +11,9 @@ import { MockpaperPage } from './pages/MockpaperPage'
 import { ValidatePage } from './pages/ValidatePage'
 import { SnapshotsPage } from './pages/SnapshotsPage'
 import { JobsPage } from './pages/JobsPage'
+import { LibraryPage } from './pages/LibraryPage'
+import { ViewMarkdownPage } from './pages/ViewMarkdownPage'
+import { ViewPdfPage } from './pages/ViewPdfPage'
 
 const router = createBrowserRouter([
   {
@@ -24,6 +27,9 @@ const router = createBrowserRouter([
       { path: 'validate', element: <ValidatePage /> },
       { path: 'snapshots', element: <SnapshotsPage /> },
       { path: 'jobs', element: <JobsPage /> },
+      { path: 'library', element: <LibraryPage /> },
+      { path: 'view/md', element: <ViewMarkdownPage /> },
+      { path: 'view/pdf', element: <ViewPdfPage /> },
       { path: '*', element: <Navigate to="/" replace /> },
     ],
   },
