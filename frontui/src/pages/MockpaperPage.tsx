@@ -28,8 +28,12 @@ export function MockpaperPage() {
   useEffect(() => {
     ;(async () => {
       try {
-        const res = await apiFetch<{ ok: true; models: string[] }>('/api/models')
-        setModels(res.models || [])
+        const res = await apiFetch<{ ok: true; models: string[]; text_models: string[]; main_model?: string }>('/api/models')
+        const merged = Array.from(new Set([...(res.models || []), ...(res.text_models || [])]))
+        setModels(merged)
+        if (!model && res.main_model && merged.includes(res.main_model)) {
+          setModel(res.main_model)
+        }
       } catch {
         setModels([])
       }
@@ -118,7 +122,7 @@ export function MockpaperPage() {
           <details className="mt-4">
             <summary className="cursor-pointer text-sm font-medium text-gray-700">Advanced</summary>
             <div className="mt-3 grid gap-4 sm:grid-cols-2">
-              <Field label="model (optional)">
+              <Field label="model (any)">
                 {models.length ? (
                   <select className="w-full rounded-md border px-3 py-2 text-sm" value={model} onChange={(e) => setModel(e.target.value)}>
                     <option value="">(default)</option>

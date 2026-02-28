@@ -22,8 +22,12 @@ export function IngestPdfPage() {
   useEffect(() => {
     ;(async () => {
       try {
-        const res = await apiFetch<{ ok: true; models: string[] }>('/api/models')
-        setModels(res.models || [])
+        const res = await apiFetch<{ ok: true; image_models: string[]; main_model?: string }>('/api/models')
+        const list = res.image_models || []
+        setModels(list)
+        if (!model && res.main_model && list.includes(res.main_model)) {
+          setModel(res.main_model)
+        }
       } catch {
         setModels([])
       }
@@ -113,7 +117,7 @@ export function IngestPdfPage() {
             <Field label="dpi">
               <input className="w-full rounded-md border px-3 py-2 text-sm" type="number" value={dpi} onChange={(e) => setDpi(Number(e.target.value))} />
             </Field>
-            <Field label="model (optional)">
+            <Field label="model (vision only)">
               {models.length ? (
                 <select className="w-full rounded-md border px-3 py-2 text-sm" value={model} onChange={(e) => setModel(e.target.value)}>
                   <option value="">(default)</option>
