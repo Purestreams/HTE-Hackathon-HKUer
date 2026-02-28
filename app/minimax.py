@@ -1,17 +1,14 @@
 import httpx
 
-'''
-sk-cp-JRo44GMFd_Rb6zUAo_BQ830LGAiXdQkHr5kbHQF_jJm__OAJSoPzexNrhWe65VivPmAfWiq9dXx1NlABFygyQ2EVOhaGtreqoz_B_7n7Vx-cuF5GZP9fPqU
-'''
 
 import anthropic
 
-import os
+try:
+    from dotenv import load_dotenv
 
-#set up API key and client
-os.environ["ANTHROPIC_BASE_URL"] = "https://api.minimax.io/anthropic"
-os.environ["ANTHROPIC_API_KEY"] = "sk-cp-JRo44GMFd_Rb6zUAo_BQ830LGAiXdQkHr5kbHQF_jJm__OAJSoPzexNrhWe65VivPmAfWiq9dXx1NlABFygyQ2EVOhaGtreqoz_B_7n7Vx-cuF5GZP9fPqU"
-
+    load_dotenv()
+except Exception:
+    pass
 
 client = anthropic.Anthropic()
 
