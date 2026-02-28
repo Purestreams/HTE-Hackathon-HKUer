@@ -14,9 +14,20 @@ ANTHROPIC_BASE_URL=https://api.minimax.io/anthropic
 ANTHROPIC_API_KEY=your_anthropic_key_here
 EXA_API_KEY=your_exa_key_here
 ARK_API_KEY=your_ark_key_here
+MOCKPAPER_PROVIDER=ark
+MOCKPAPER_MODEL=doubao-seed-1-8-251228
 ```
 
 Security note: never put real API keys in the repo (README, code, or committed `.env`).
+
+### Mockpaper model provider switch
+
+`app/mockpaper.py` now supports provider selection via env:
+
+- `MOCKPAPER_PROVIDER=ark` (default): uses `ARK_API_KEY`
+- `MOCKPAPER_PROVIDER=minimax`: uses Anthropic-compatible endpoint (`ANTHROPIC_BASE_URL` + `MINIMAX_API_KEY` or `ANTHROPIC_API_KEY`)
+
+You can keep using `MOCKPAPER_MODEL` to choose the model name for either provider.
 
 ## Local data (`sources/`)
 

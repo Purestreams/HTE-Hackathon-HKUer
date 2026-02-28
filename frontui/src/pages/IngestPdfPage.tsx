@@ -1,15 +1,16 @@
-import { useState, type FormEvent, type ReactNode } from 'react'
-import { apiFetch, type JobCreateResponse } from '../lib/api'
+import { useEffect, useState, type FormEvent, type ReactNode } from 'react'
+import { apiFetch, type UploadResponse } from '../lib/api'
 import { JobStatusCard } from '../components/JobStatusCard'
 import { saveJob } from '../lib/jobHistory'
 
 export function IngestPdfPage() {
-  const [pdfPath, setPdfPath] = useState('sources/assignments/A1/Assignment1.pdf')
+  const [file, setFile] = useState<File | null>(null)
   const [category, setCategory] = useState('assignment')
   const [mode, setMode] = useState<'auto' | 'text' | 'vision'>('auto')
   const [maxPages, setMaxPages] = useState<string>('')
   const [diagPages, setDiagPages] = useState<number>(3)
   const [dpi, setDpi] = useState<number>(300)
+  const [models, setModels] = useState<string[]>([])
   const [model, setModel] = useState<string>('')
   const [allowImageHeavy, setAllowImageHeavy] = useState<boolean>(false)
   const [outName, setOutName] = useState<string>('')
@@ -18,6 +19,17 @@ export function IngestPdfPage() {
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
 
+  useEffect(() => {
+    ;(async () => {
+      try {
+        const res = await apiFetch<{ ok: true; models: string[] }>('/api/models')
+        setModels(res.models || [])
+      } catch {
+        setModels([])
+      }
+    })()
+  }, [])
+
   async function submit(e: FormEvent) {
     e.preventDefault()
     setBusy(true)
@@ -25,25 +37,33 @@ export function IngestPdfPage() {
     setJobId(null)
 
     try {
-      const payload: any = {
-        pdf_path: pdfPath,
-        category,
-        mode,
-        diag_pages: diagPages,
-        dpi,
-        allow_image_heavy: allowImageHeavy,
+      if (!file) {
+        setError('Pick a PDF file first')
+        return
       }
-      if (maxPages.trim()) payload.max_pages = Number(maxPages)
-      if (model.trim()) payload.model = model.trim()
-      if (outName.trim()) payload.out_name = outName.trim()
 
-      const res = await apiFetch<JobCreateResponse>('/api/ingest/pdf', {
+      const fd = new FormData()
+      fd.append('file', file)
+      fd.append('category', category)
+      fd.append('ingest', '1')
+      fd.append('mode', mode)
+      fd.append('diag_pages', String(diagPages))
+      fd.append('dpi', String(dpi))
+      if (maxPages.trim()) fd.append('max_pages', String(Number(maxPages)))
+      if (model.trim()) fd.append('model', model.trim())
+      if (outName.trim()) fd.append('out_name', outName.trim())
+      if (allowImageHeavy) fd.append('allow_image_heavy', '1')
+
+      const res = await apiFetch<UploadResponse>('/api/upload', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
+        body: fd as any,
       })
-      setJobId(res.job_id)
-      saveJob({ id: res.job_id, type: 'pdf_ingest', createdAt: new Date().toISOString() })
+      if (res.job_id) {
+        setJobId(res.job_id)
+        saveJob({ id: res.job_id, type: 'pdf_ingest', createdAt: new Date().toISOString() })
+      } else {
+        setError('Upload succeeded but no ingest job was created (non-PDF?)')
+      }
     } catch (e: any) {
       setError(String(e?.message ?? e))
     } finally {
@@ -61,8 +81,13 @@ export function IngestPdfPage() {
       <div className="grid gap-4 lg:grid-cols-2">
         <form onSubmit={submit} className="rounded-lg border bg-white p-4 shadow-sm">
           <div className="grid gap-4 sm:grid-cols-2">
-            <Field label="pdf_path">
-              <input className="w-full rounded-md border px-3 py-2 text-sm" value={pdfPath} onChange={(e) => setPdfPath(e.target.value)} />
+            <Field label="PDF file">
+              <input
+                className="w-full rounded-md border bg-white px-3 py-2 text-sm"
+                type="file"
+                accept=".pdf"
+                onChange={(e) => setFile(e.target.files?.[0] ?? null)}
+              />
             </Field>
             <Field label="category">
               <select className="w-full rounded-md border px-3 py-2 text-sm" value={category} onChange={(e) => setCategory(e.target.value)}>
@@ -89,7 +114,18 @@ export function IngestPdfPage() {
               <input className="w-full rounded-md border px-3 py-2 text-sm" type="number" value={dpi} onChange={(e) => setDpi(Number(e.target.value))} />
             </Field>
             <Field label="model (optional)">
-              <input className="w-full rounded-md border px-3 py-2 text-sm" value={model} onChange={(e) => setModel(e.target.value)} placeholder="defaults to ARK_MODEL" />
+              {models.length ? (
+                <select className="w-full rounded-md border px-3 py-2 text-sm" value={model} onChange={(e) => setModel(e.target.value)}>
+                  <option value="">(default)</option>
+                  {models.map((m) => (
+                    <option key={m} value={m}>
+                      {m}
+                    </option>
+                  ))}
+                </select>
+              ) : (
+                <input className="w-full rounded-md border px-3 py-2 text-sm" value={model} onChange={(e) => setModel(e.target.value)} placeholder="defaults to MOCKPAPER_MODEL/ARK_MODEL" />
+              )}
             </Field>
             <Field label="out_name (optional)">
               <input className="w-full rounded-md border px-3 py-2 text-sm" value={outName} onChange={(e) => setOutName(e.target.value)} placeholder="e.g. Assignment1_ingested.md" />
@@ -115,7 +151,7 @@ export function IngestPdfPage() {
           {jobId && <div className="mt-3 text-sm text-gray-700">Created job: <span className="font-mono">{jobId}</span></div>}
         </form>
 
-        <div>{jobId ? <JobStatusCard jobId={jobId} /> : <EmptyRightPanel />}</div>
+        <div>{jobId ? <JobStatusCard jobId={jobId} onMissing={() => setJobId(null)} /> : <EmptyRightPanel />}</div>
       </div>
     </div>
   )

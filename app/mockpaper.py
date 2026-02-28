@@ -2,6 +2,7 @@ import argparse
 import json
 import os
 import sys
+import re
 try:
     from dotenv import load_dotenv
 
@@ -10,8 +11,9 @@ except Exception:
     pass
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
+import anthropic
 from volcenginesdkarkruntime import Ark
 
 try:
@@ -36,6 +38,114 @@ def _require_ark_api_key() -> str:
     return api_key
 
 
+def _get_mockpaper_provider() -> str:
+    provider = str(os.environ.get("MOCKPAPER_PROVIDER") or "minimax").strip().lower()
+    if provider not in {"ark", "minimax"}:
+        raise RuntimeError("MOCKPAPER_PROVIDER must be 'ark' or 'minimax'")
+    return provider
+
+
+def _require_minimax_api_key() -> str:
+    api_key = os.environ.get("MINIMAX_API_KEY") or os.environ.get("ANTHROPIC_API_KEY")
+    if not api_key:
+        raise RuntimeError(
+            "Missing MINIMAX_API_KEY (or ANTHROPIC_API_KEY). Set it in your shell/.env."
+        )
+    return api_key
+
+
+def _build_client() -> Tuple[str, Any]:
+    provider = _get_mockpaper_provider()
+    if provider == "ark":
+        api_key = _require_ark_api_key()
+        return provider, Ark(api_key=api_key)
+
+    # minimax via Anthropic-compatible endpoint
+    api_key = _require_minimax_api_key()
+    base_url = str(os.environ.get("ANTHROPIC_BASE_URL") or "https://api.minimax.io/anthropic")
+    return provider, anthropic.Anthropic(api_key=api_key, base_url=base_url)
+
+
+def _messages_to_anthropic(messages: List[Dict[str, Any]]) -> Tuple[str, List[Dict[str, Any]]]:
+    system_parts: List[str] = []
+    out_messages: List[Dict[str, Any]] = []
+    for m in messages:
+        role = str(m.get("role") or "").strip().lower()
+        content = str(m.get("content") or "")
+        if role == "system":
+            system_parts.append(content)
+            continue
+        if role not in {"user", "assistant"}:
+            continue
+        out_messages.append({"role": role, "content": content})
+    system = "\n\n".join([p for p in system_parts if p.strip()]).strip()
+    return system, out_messages
+
+
+def _chat_complete_text(
+    *,
+    provider: str,
+    client: Any,
+    model: str,
+    messages: List[Dict[str, Any]],
+    temperature: Optional[float] = None,
+    show_progress: bool = False,
+    progress_label: str = "llm",
+    on_progress_tokens: Optional[Callable[[int], None]] = None,
+) -> str:
+    if provider == "ark":
+        payload: Dict[str, Any] = {"model": model, "messages": messages}
+        if temperature is not None:
+            payload["temperature"] = temperature
+
+        if show_progress or on_progress_tokens is not None:
+            progress = TokenRateProgress(label=progress_label) if show_progress else None
+            if progress:
+                progress.start()
+            stream = client.chat.completions.create(**payload, stream=True)
+            content_parts: List[str] = []
+            total_tok = 0
+            for chunk in stream:
+                delta_text = stream_text_from_ark_response([chunk])
+                if not delta_text:
+                    continue
+                content_parts.append(delta_text)
+                total_tok = estimate_tokens("".join(content_parts))
+                if progress:
+                    progress.update(total_tok)
+                if on_progress_tokens is not None:
+                    on_progress_tokens(total_tok)
+            content = "".join(content_parts)
+            if progress:
+                progress.finish(estimate_tokens(content))
+            return content
+
+        resp = client.chat.completions.create(**payload)
+        return resp.choices[0].message.content or ""  # type: ignore[attr-defined]
+
+    # minimax (Anthropic-compatible)
+    system, amsg = _messages_to_anthropic(messages)
+    payload2: Dict[str, Any] = {
+        "model": model,
+        "max_tokens": 8192,
+        "system": system,
+        "messages": amsg,
+    }
+    if temperature is not None:
+        payload2["temperature"] = temperature
+
+    msg = client.messages.create(**payload2)
+    parts: List[str] = []
+    for block in (msg.content or []):
+        t = getattr(block, "type", None)
+        if t == "text":
+            parts.append(getattr(block, "text", "") or "")
+    content = "".join(parts)
+    if on_progress_tokens is not None:
+        on_progress_tokens(estimate_tokens(content))
+    return content
+
+
 def _read_text_file(path: Path) -> str:
     return path.read_text(encoding="utf-8", errors="ignore")
 
@@ -53,6 +163,9 @@ def load_sample_document_with_manifest(
         candidates: List[Path] = []
         for ext in ("*.md", "*.txt", "*.pdf"):
             candidates.extend(sorted(sample_path.rglob(ext)))
+        # If a PDF has already been converted to Markdown (same basename), ignore the PDF.
+        md_stems = {p.stem for p in candidates if p.suffix.lower() in {".md", ".markdown"}}
+        candidates = [p for p in candidates if not (p.suffix.lower() == ".pdf" and p.stem in md_stems)]
         if not candidates:
             raise ValueError(f"No .md/.txt/.pdf found under sample directory: {sample_path}")
 
@@ -91,6 +204,9 @@ def load_sample_document(sample_path: Path, *, max_pages: Optional[int] = None) 
         candidates = []
         for ext in ("*.md", "*.txt", "*.pdf"):
             candidates.extend(sorted(sample_path.rglob(ext)))
+        # If a PDF has already been converted to Markdown (same basename), ignore the PDF.
+        md_stems = {p.stem for p in candidates if p.suffix.lower() in {".md", ".markdown"}}
+        candidates = [p for p in candidates if not (p.suffix.lower() == ".pdf" and p.stem in md_stems)]
         if not candidates:
             raise ValueError(f"No .md/.txt/.pdf found under sample directory: {sample_path}")
 
@@ -111,6 +227,10 @@ def load_sample_document(sample_path: Path, *, max_pages: Optional[int] = None) 
         return _read_text_file(sample_path)
 
     if suffix == ".pdf":
+        # Prefer a sibling markdown if this PDF was already converted.
+        md_path = sample_path.with_suffix(".md")
+        if md_path.exists():
+            return _read_text_file(md_path)
         texts = extract_text_from_pdf(sample_path, max_pages=max_pages)
         combined = "\n\n".join([t for t in texts if t])
         return combined.strip()
@@ -165,15 +285,127 @@ def parse_ratios(ratios_str: str) -> Dict[str, float]:
 
 
 def _safe_json_loads(s: str) -> Dict[str, Any]:
-    s = s.strip()
-    # Allow fenced JSON
-    if s.startswith("```"):
-        s = s.strip("`")
-        # If it was ```json ...```, remove the leading language token line
-        lines = s.splitlines()
-        if lines and lines[0].strip().lower().startswith("json"):
-            s = "\n".join(lines[1:]).strip()
-    return json.loads(s)
+    """Best-effort JSON object parsing.
+
+    Models sometimes:
+    - wrap JSON in ```json fences
+    - prepend/append short commentary
+    - return multiple blocks; we want the first JSON object
+    """
+
+    s = (s or "").strip().lstrip("\ufeff")
+    if not s:
+        raise ValueError("empty json")
+
+    # If fenced, prefer the fenced content.
+    if "```" in s:
+        m = re.search(r"```(?:json)?\s*(.*?)```", s, flags=re.IGNORECASE | re.DOTALL)
+        if m:
+            s = (m.group(1) or "").strip()
+
+    # Remove a leading language token line like: json\n{...}
+    lines = s.splitlines()
+    if lines and lines[0].strip().lower() in {"json"}:
+        s = "\n".join(lines[1:]).strip()
+
+    # 1) direct parse
+    try:
+        obj = json.loads(s)
+        if not isinstance(obj, dict):
+            raise ValueError("json is not an object")
+        return obj
+    except Exception:
+        pass
+
+    # 2) raw_decode starting at first '{'
+    start = s.find("{")
+    if start >= 0:
+        dec = json.JSONDecoder()
+        obj, _end = dec.raw_decode(s[start:])
+        if not isinstance(obj, dict):
+            raise ValueError("json is not an object")
+        return obj
+
+    raise ValueError("unable to parse json")
+
+
+def _repair_json_with_ark(
+    provider: str,
+    client: Any,
+    *,
+    model: str,
+    bad_text: str,
+    temperature: Optional[float] = None,
+) -> str:
+    """Ask the model to rewrite an output into strict JSON only."""
+
+    system = "You fix and normalize JSON. Output STRICT JSON only, no markdown, no commentary."
+    user = (
+        "Rewrite the following content into a single STRICT JSON object. "
+        "Do not add any keys that are not present unless required to make valid JSON.\n\n"
+        "[CONTENT START]\n" + (bad_text or "") + "\n[CONTENT END]"
+    )
+
+    messages = [{"role": "system", "content": system}, {"role": "user", "content": user}]
+    return _chat_complete_text(
+        provider=provider,
+        client=client,
+        model=model,
+        messages=messages,
+        temperature=temperature,
+        show_progress=False,
+    )
+
+
+def _parse_or_repair_json(
+    *,
+    provider: str,
+    client: Any,
+    model: str,
+    content: str,
+    required_keys: Optional[List[str]] = None,
+) -> Dict[str, Any]:
+    """Parse JSON robustly and retry once with repair prompt if needed."""
+
+    required_keys = required_keys or []
+
+    # 1) direct parse
+    try:
+        obj = _safe_json_loads(content)
+        if all(k in obj for k in required_keys):
+            return obj
+    except Exception:
+        pass
+
+    # 2) one repair round-trip
+    fixed = _repair_json_with_ark(provider, client, model=model, bad_text=content, temperature=0.0)
+    obj = _safe_json_loads(fixed)
+    return obj
+
+
+def _coerce_exam_json_keys(obj: Dict[str, Any]) -> Dict[str, Any]:
+    """Normalize common key variations returned by different models."""
+    out = dict(obj)
+
+    if "paper_md" not in out:
+        for k in ("paper", "exam", "exam_md", "questions_md"):
+            if k in out and str(out.get(k) or "").strip():
+                out["paper_md"] = out[k]
+                break
+
+    if "answers_md" not in out:
+        for k in ("answers", "answer", "solution", "solutions_md", "answer_key"):
+            if k in out and str(out.get(k) or "").strip():
+                out["answers_md"] = out[k]
+                break
+
+    if "combined_md" not in out:
+        for k in ("combined", "markdown", "md", "exam_markdown"):
+            if k in out and str(out.get(k) or "").strip():
+                out["combined_md"] = out[k]
+                break
+
+    return out
 
 
 def analyze_style_with_ark(
@@ -183,14 +415,15 @@ def analyze_style_with_ark(
     extra_instructions: str = "",
     temperature: Optional[float] = None,
     show_progress: bool = False,
+    on_progress_tokens: Optional[Callable[[int], None]] = None,
 ) -> Dict[str, Any]:
-    api_key = _require_ark_api_key()
-    client = Ark(api_key=api_key)
+    provider, client = _build_client()
 
     system = (
         "You are an exam-paper style analyzer. "
         "Given a sample exam/assignment paper, infer its formatting and structure. "
-        "Return STRICT JSON only (no markdown, no commentary)."
+        "Return STRICT JSON only (no markdown, no commentary). "
+        "Your output must be valid RFC8259 JSON: double-quoted keys/strings, no trailing commas, no comments, no code fences."
     )
 
     user = (
@@ -204,6 +437,13 @@ def analyze_style_with_ark(
         "- constraints: array of constraints (e.g., time limit, allowed materials, formatting rules)\n"
         "- formatting_notes: array of short bullet-like notes\n"
         "\nIf the sample is not an exam (or too incomplete), still return best-effort JSON.\n"
+        "\nJSON output rules (MANDATORY):\n"
+        "1) Output ONE JSON object only.\n"
+        "2) No prose before/after JSON.\n"
+        "3) No markdown fences.\n"
+        "4) Escape internal newlines as \\n inside string values.\n"
+        "5) Ensure all required keys exist; use empty string/array when unknown.\n"
+        "6) Before finalizing, self-validate that JSON parses with a standard parser.\n"
     )
     if extra_instructions.strip():
         user += "\nAdditional user format instructions:\n" + extra_instructions.strip() + "\n"
@@ -217,31 +457,30 @@ def analyze_style_with_ark(
         {"role": "user", "content": user + "\n\n[SAMPLE START]\n" + sample_text + "\n[SAMPLE END]"},
     ]
 
-    payload: Dict[str, Any] = {"model": model, "messages": messages}
-    if temperature is not None:
-        payload["temperature"] = temperature
-
-    if show_progress:
-        progress = TokenRateProgress(label="style")
-        progress.start()
-        stream = client.chat.completions.create(**payload, stream=True)
-        content_parts: List[str] = []
-        for chunk in stream:
-            delta_text = stream_text_from_ark_response([chunk])
-            if delta_text:
-                content_parts.append(delta_text)
-                progress.update(estimate_tokens("".join(content_parts)))
-        content = "".join(content_parts)
-        progress.finish(estimate_tokens(content))
-    else:
-        resp = client.chat.completions.create(**payload)
-        content = resp.choices[0].message.content or ""  # type: ignore[attr-defined]
+    content = _chat_complete_text(
+        provider=provider,
+        client=client,
+        model=model,
+        messages=messages,
+        temperature=temperature,
+        show_progress=show_progress,
+        progress_label="style",
+        on_progress_tokens=on_progress_tokens,
+    )
     try:
         return _safe_json_loads(content)
     except Exception as e:
-        raise RuntimeError(
-            "Style analysis did not return valid JSON. Consider reducing sample length or using a different model."
-        ) from e
+        # Retry once by asking the model to repair/normalize the JSON.
+        try:
+            fixed = _repair_json_with_ark(provider, client, model=model, bad_text=content, temperature=0.0)
+            return _safe_json_loads(fixed)
+        except Exception:
+            head = (content or "").strip().replace("\n", " ")[:300]
+            raise RuntimeError(
+                "Style analysis did not return valid JSON. "
+                "Consider reducing sample length, adding format constraints, or using a different model. "
+                f"Model output head: {head}"
+            ) from e
 
 
 def generate_exam_with_ark(
@@ -253,16 +492,17 @@ def generate_exam_with_ark(
     custom_format_prompt: str = "",
     temperature: Optional[float] = None,
     show_progress: bool = False,
+    on_progress_tokens: Optional[Callable[[int], None]] = None,
 ) -> Tuple[str, str]:
     """Return (paper_markdown, answers_markdown)."""
 
-    api_key = _require_ark_api_key()
-    client = Ark(api_key=api_key)
+    provider, client = _build_client()
 
     system = (
         "You are a professor-simulator that generates high-quality mock exams. "
         "You MUST follow the provided style profile. "
-        "Output STRICT JSON only with keys: paper_md, answers_md."
+        "Output STRICT JSON only with keys: paper_md, answers_md. "
+        "Your output must be valid RFC8259 JSON with double quotes, no trailing commas, no comments, and no markdown fences."
     )
 
     ratio_lines = "\n".join([f"- {k}: {v:.2%}" for k, v in spec.ratios.items()])
@@ -297,7 +537,12 @@ def generate_exam_with_ark(
         "  \"paper_md\": \"...GitHub-flavored Markdown...\",\n"
         "  \"answers_md\": \"...GitHub-flavored Markdown...\"\n"
         "}\n"
-        "Do not wrap in code fences."
+        "Do not wrap in code fences.\n"
+        "JSON output rules (MANDATORY):\n"
+        "- Output ONE JSON object only, no extra text.\n"
+        "- Escape all internal newlines inside strings as \\n.\n"
+        "- If unsure, still emit valid JSON using empty strings rather than malformed output.\n"
+        "- Before finalizing, self-check that json.loads(output) would succeed."
     )
 
     messages = [
@@ -305,31 +550,32 @@ def generate_exam_with_ark(
         {"role": "user", "content": user},
     ]
 
-    payload: Dict[str, Any] = {"model": model, "messages": messages}
-    if temperature is not None:
-        payload["temperature"] = temperature
-
-    if show_progress:
-        progress = TokenRateProgress(label="exam")
-        progress.start()
-        stream = client.chat.completions.create(**payload, stream=True)
-        content_parts: List[str] = []
-        for chunk in stream:
-            delta_text = stream_text_from_ark_response([chunk])
-            if delta_text:
-                content_parts.append(delta_text)
-                progress.update(estimate_tokens("".join(content_parts)))
-        content = "".join(content_parts)
-        progress.finish(estimate_tokens(content))
-    else:
-        resp = client.chat.completions.create(**payload)
-        content = resp.choices[0].message.content or ""  # type: ignore[attr-defined]
+    content = _chat_complete_text(
+        provider=provider,
+        client=client,
+        model=model,
+        messages=messages,
+        temperature=temperature,
+        show_progress=show_progress,
+        progress_label="exam",
+        on_progress_tokens=on_progress_tokens,
+    )
 
     try:
-        obj = _safe_json_loads(content)
+        obj = _parse_or_repair_json(
+            provider=provider,
+            client=client,
+            model=model,
+            content=content,
+            required_keys=["paper_md", "answers_md"],
+        )
+        obj = _coerce_exam_json_keys(obj)
     except Exception as e:
+        head = (content or "").strip().replace("\n", " ")[:300]
         raise RuntimeError(
-            "Exam generation did not return valid JSON. Consider lowering temperature or simplifying the prompt."
+            "Exam generation did not return valid JSON. "
+            "Consider lowering temperature or simplifying the prompt. "
+            f"Model output head: {head}"
         ) from e
 
     paper_md = str(obj.get("paper_md", ""))
@@ -349,16 +595,17 @@ def generate_inline_exam_with_ark(
     custom_format_prompt: str = "",
     temperature: Optional[float] = None,
     show_progress: bool = False,
+    on_progress_tokens: Optional[Callable[[int], None]] = None,
 ) -> str:
     """Return a single Markdown string with answers immediately after each question."""
 
-    api_key = _require_ark_api_key()
-    client = Ark(api_key=api_key)
+    provider, client = _build_client()
 
     system = (
         "You are a professor-simulator that generates high-quality mock exams. "
         "You MUST follow the provided style profile. "
-        "Output STRICT JSON only with key: combined_md."
+        "Output the final exam as GitHub-flavored Markdown only. "
+        "Do not output JSON, code fences, XML, or commentary."
     )
 
     ratio_lines = "\n".join([f"- {k}: {v:.2%}" for k, v in spec.ratios.items()])
@@ -389,12 +636,12 @@ def generate_inline_exam_with_ark(
         user += "\nUser custom format instructions (override defaults when conflicting):\n" + custom_format_prompt.strip() + "\n"
 
     user += (
-        "\nOutput format:\n"
-        "Return STRICT JSON only:\n"
-        "{\n"
-        "  \"combined_md\": \"...GitHub-flavored Markdown...\"\n"
-        "}\n"
-        "Do not wrap in code fences."
+        "\nOutput format (MANDATORY):\n"
+        "- Output GitHub-flavored Markdown directly (plain text).\n"
+        "- NO JSON.\n"
+        "- NO code fences like ```markdown.\n"
+        "- NO preface or explanation text.\n"
+        "- Start immediately with the exam title/heading."
     )
 
     messages = [
@@ -402,41 +649,27 @@ def generate_inline_exam_with_ark(
         {"role": "user", "content": user},
     ]
 
-    payload: Dict[str, Any] = {"model": model, "messages": messages}
-    if temperature is not None:
-        payload["temperature"] = temperature
+    content = _chat_complete_text(
+        provider=provider,
+        client=client,
+        model=model,
+        messages=messages,
+        temperature=temperature,
+        show_progress=show_progress,
+        progress_label="exam",
+        on_progress_tokens=on_progress_tokens,
+    )
 
-    if show_progress:
-        progress = TokenRateProgress(label="exam")
-        progress.start()
-        stream = client.chat.completions.create(**payload, stream=True)
-        content_parts: List[str] = []
-        for chunk in stream:
-            delta_text = stream_text_from_ark_response([chunk])
-            if delta_text:
-                content_parts.append(delta_text)
-                progress.update(estimate_tokens("".join(content_parts)))
-        content = "".join(content_parts)
-        progress.finish(estimate_tokens(content))
-    else:
-        resp = client.chat.completions.create(**payload)
-        content = resp.choices[0].message.content or ""  # type: ignore[attr-defined]
+    combined_md = (content or "").strip()
 
-    try:
-        obj = _safe_json_loads(content)
-    except Exception as e:
-        raise RuntimeError(
-            "Inline exam generation did not return valid JSON. Consider lowering temperature or simplifying the prompt."
-        ) from e
-
-    combined_md = str(obj.get("combined_md", ""))
-
-    # Backward-compatible fallback if a model returns the old schema.
-    if not combined_md.strip() and ("paper_md" in obj or "answers_md" in obj):
-        paper_md = str(obj.get("paper_md", ""))
-        answers_md = str(obj.get("answers_md", ""))
-        if paper_md.strip() and answers_md.strip():
-            combined_md = paper_md.rstrip() + "\n\n---\n\n# Answer Key\n\n" + answers_md.strip() + "\n"
+    # If the model wrapped markdown in a code fence, unwrap it.
+    if combined_md.startswith("```"):
+        lines = combined_md.splitlines()
+        if lines:
+            lines = lines[1:]
+        if lines and lines[-1].strip().startswith("```"):
+            lines = lines[:-1]
+        combined_md = "\n".join(lines).strip()
 
     if not combined_md.strip():
         raise RuntimeError("Model returned empty combined_md")
@@ -470,8 +703,8 @@ def main() -> int:
     )
     parser.add_argument(
         "--model",
-        default=os.environ.get("ARK_MODEL", "doubao-seed-1-8-251228"),
-        help="Ark model name (default: env ARK_MODEL or doubao-seed-1-8-251228)",
+        default=os.environ.get("MOCKPAPER_MODEL", "MiniMax-M2.5"),
+        help="Model name for selected provider (default: env MOCKPAPER_MODEL or MiniMax-M2.5)",
     )
     parser.add_argument(
         "--max-pages",

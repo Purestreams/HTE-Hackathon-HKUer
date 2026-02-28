@@ -1,12 +1,17 @@
 import httpx
 
 '''
-sk-api-pX-J83ZFK4sVH33L7yB5JCsSD8KA2TXylwAFVagln-54frDjdUxIzOTLe7ZcyADOn-UtRcc4ZuYMRFO-0j7ZcN_gLCqlkX0fkeZ4bFvF8Vzeyeae96WBZ_A
-
-sk-api-gOi0Vn835LIYzPkGlOR24Z10jcwM4Xffzt5bhckIGaewfAdWk32EQXrYDADt9hN2nozo32RMOOmTcpyRZydxin0dk0ptS-c12A-fTMjbVrUTEQ6YlGeUO0A
+sk-cp-JRo44GMFd_Rb6zUAo_BQ830LGAiXdQkHr5kbHQF_jJm__OAJSoPzexNrhWe65VivPmAfWiq9dXx1NlABFygyQ2EVOhaGtreqoz_B_7n7Vx-cuF5GZP9fPqU
 '''
 
 import anthropic
+
+import os
+
+#set up API key and client
+os.environ["ANTHROPIC_BASE_URL"] = "https://api.minimax.io/anthropic"
+os.environ["ANTHROPIC_API_KEY"] = "sk-cp-JRo44GMFd_Rb6zUAo_BQ830LGAiXdQkHr5kbHQF_jJm__OAJSoPzexNrhWe65VivPmAfWiq9dXx1NlABFygyQ2EVOhaGtreqoz_B_7n7Vx-cuF5GZP9fPqU"
+
 
 client = anthropic.Anthropic()
 

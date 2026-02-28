@@ -1,17 +1,20 @@
-import { useState, type FormEvent, type ReactNode } from 'react'
+import { useEffect, useState, type FormEvent, type ReactNode } from 'react'
 import { apiFetch, type JobCreateResponse } from '../lib/api'
 import { JobStatusCard } from '../components/JobStatusCard'
 import { saveJob } from '../lib/jobHistory'
 
 export function MockpaperPage() {
-  const [sample, setSample] = useState('sources/assignments')
-  const [outDir, setOutDir] = useState('sources/mockpaper')
+  // Paths are relative to the ACTIVE SESSION sources root.
+  // A legacy "sources/" prefix is accepted by the backend but is not required.
+  const [sample, setSample] = useState('assignment')
+  const [outDir, setOutDir] = useState('mockpaper')
   const [name, setName] = useState('mock_inline')
   const [numQuestions, setNumQuestions] = useState<number>(10)
   const [ratios, setRatios] = useState('mcq:0.3,short:0.4,code:0.3')
   const [language, setLanguage] = useState('auto')
   const [separate, setSeparate] = useState(false)
 
+  const [models, setModels] = useState<string[]>([])
   const [model, setModel] = useState('')
   const [maxPages, setMaxPages] = useState<string>('')
   const [temperature, setTemperature] = useState<string>('')
@@ -21,6 +24,17 @@ export function MockpaperPage() {
   const [jobId, setJobId] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    ;(async () => {
+      try {
+        const res = await apiFetch<{ ok: true; models: string[] }>('/api/models')
+        setModels(res.models || [])
+      } catch {
+        setModels([])
+      }
+    })()
+  }, [])
 
   async function submit(e: FormEvent) {
     e.preventDefault()
@@ -105,7 +119,18 @@ export function MockpaperPage() {
             <summary className="cursor-pointer text-sm font-medium text-gray-700">Advanced</summary>
             <div className="mt-3 grid gap-4 sm:grid-cols-2">
               <Field label="model (optional)">
-                <input className="w-full rounded-md border px-3 py-2 text-sm" value={model} onChange={(e) => setModel(e.target.value)} placeholder="defaults to ARK_MODEL" />
+                {models.length ? (
+                  <select className="w-full rounded-md border px-3 py-2 text-sm" value={model} onChange={(e) => setModel(e.target.value)}>
+                    <option value="">(default)</option>
+                    {models.map((m) => (
+                      <option key={m} value={m}>
+                        {m}
+                      </option>
+                    ))}
+                  </select>
+                ) : (
+                  <input className="w-full rounded-md border px-3 py-2 text-sm" value={model} onChange={(e) => setModel(e.target.value)} placeholder="defaults to MOCKPAPER_MODEL/ARK_MODEL" />
+                )}
               </Field>
               <Field label="max_pages (optional)">
                 <input className="w-full rounded-md border px-3 py-2 text-sm" value={maxPages} onChange={(e) => setMaxPages(e.target.value)} />
@@ -138,7 +163,7 @@ export function MockpaperPage() {
           {jobId && <div className="mt-3 text-sm text-gray-700">Created job: <span className="font-mono">{jobId}</span></div>}
         </form>
 
-        <div>{jobId ? <JobStatusCard jobId={jobId} /> : <EmptyRightPanel />}</div>
+        <div>{jobId ? <JobStatusCard jobId={jobId} onMissing={() => setJobId(null)} /> : <EmptyRightPanel />}</div>
       </div>
     </div>
   )

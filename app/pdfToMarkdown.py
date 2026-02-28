@@ -1,8 +1,9 @@
 import argparse
 import base64
 import os
+import sys
 from pathlib import Path
-from typing import List, Optional, Tuple
+from typing import Callable, List, Optional, Tuple
 
 from volcenginesdkarkruntime import Ark
 
@@ -12,6 +13,14 @@ try:
     load_dotenv()
 except Exception:
     pass
+
+try:
+    from app.streaming import TokenRateProgress, estimate_tokens, stream_text_from_ark_response
+except ModuleNotFoundError:
+    # Supports running as a script: `python app/pdfToMarkdown.py ...`
+    repo_root = Path(__file__).resolve().parents[1]
+    sys.path.insert(0, str(repo_root))
+    from app.streaming import TokenRateProgress, estimate_tokens, stream_text_from_ark_response
 
 
 REFUSE_TOO_IMAGE_HEAVY_SENTINEL = "REFUSE_TOO_IMAGE_HEAVY"
@@ -188,6 +197,8 @@ def convert_pdf_to_markdown(
     overall_text_char_limit: int = 20000,
     temperature: Optional[float] = None,
     refuse_if_too_image_heavy: bool = True,
+    show_progress: bool = False,
+    on_progress_tokens: Optional[Callable[[int], None]] = None,
 ) -> Tuple[str, List[Path]]:
     pdf_path = pdf_path.expanduser().resolve()
     output_md_path = output_md_path.expanduser().resolve()
@@ -225,9 +236,30 @@ def convert_pdf_to_markdown(
 
     api_key = _require_ark_api_key()
     client = Ark(api_key=api_key)
-    resp = client.chat.completions.create(**payload)
-    msg = resp.choices[0].message # type: ignore
-    markdown = msg.content or ""
+    if show_progress or on_progress_tokens is not None:
+        progress = TokenRateProgress(label="pdf") if show_progress else None
+        if progress:
+            progress.start()
+        stream = client.chat.completions.create(**payload, stream=True)
+        parts: List[str] = []
+        total_tok = 0
+        for chunk in stream:
+            delta_text = stream_text_from_ark_response([chunk])
+            if not delta_text:
+                continue
+            parts.append(delta_text)
+            total_tok = estimate_tokens("".join(parts))
+            if progress:
+                progress.update(total_tok)
+            if on_progress_tokens is not None:
+                on_progress_tokens(total_tok)
+        markdown = "".join(parts)
+        if progress:
+            progress.finish(estimate_tokens(markdown))
+    else:
+        resp = client.chat.completions.create(**payload)
+        msg = resp.choices[0].message # type: ignore
+        markdown = msg.content or ""
 
     if refuse_if_too_image_heavy and markdown.strip() == REFUSE_TOO_IMAGE_HEAVY_SENTINEL:
         raise RuntimeError(
