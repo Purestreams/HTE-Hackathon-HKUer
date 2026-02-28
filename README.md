@@ -18,6 +18,10 @@ ARK_API_KEY=your_ark_key_here
 
 Security note: never put real API keys in the repo (README, code, or committed `.env`).
 
+## Local data (`sources/`)
+
+The `sources/` folder is treated as local, untracked data and is organized into subfolders (assignments, generated mock papers, rendered images). See [SOURCES.md](SOURCES.md).
+
 ## Web Search Module
 
 The `websearch.py` module provides integration with **Exa API** for real-time web search:

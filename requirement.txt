@@ -4,8 +4,6 @@ exa-py
 python-dotenv
 openai
 
-torch
-transformers
 pdf2image
 pillow
 pytesseract
