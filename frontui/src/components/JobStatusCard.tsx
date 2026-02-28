@@ -56,6 +56,9 @@ export function JobStatusCard(props: { jobId: string; onMissing?: () => void }) 
 
   if (missing) return null
 
+  const stage = String(data?.job.progress?.stage ?? '')
+  const pct = stageToPercent(stage)
+
   return (
     <div className="rounded-lg border bg-white p-4 shadow-sm">
       <div className="flex items-center justify-between">
@@ -104,6 +107,15 @@ export function JobStatusCard(props: { jobId: string; onMissing?: () => void }) 
                 </span>
               )}
             </div>
+
+            {(data.job.status === 'running' || data.job.status === 'queued') && pct > 0 && (
+              <div className="mt-2">
+                <div className="h-2 w-full rounded-full bg-gray-100">
+                  <div className="h-2 rounded-full bg-blue-600 transition-[width] duration-300" style={{ width: `${pct}%` }} />
+                </div>
+                <div className="mt-1 text-[11px] text-gray-500">{pct}%</div>
+              </div>
+            )}
 
             {data.job.progress && (data.job.status === 'queued' || data.job.status === 'running') && (
               <div className="mt-2 rounded-md bg-gray-50 p-2 text-xs text-gray-700">
@@ -158,21 +170,49 @@ export function JobStatusCard(props: { jobId: string; onMissing?: () => void }) 
   )
 }
 
+function stageToPercent(stageRaw: string): number {
+  const stage = String(stageRaw || '').toLowerCase().trim()
+  if (!stage) return 0
+  if (stage === 'starting') return 5
+  if (stage === 'scan') return 25
+  if (stage === 'mock_checks') return 55
+  if (stage === 'llm_review') return 85
+  if (stage === 'done') return 100
+  return 10
+}
+
 function ResultLinks(props: { result: Record<string, unknown> }) {
   const mdPath = (props.result['markdown_path'] ?? props.result['markdown']) as string | undefined
-  if (!mdPath || typeof mdPath !== 'string') return null
+  const thinkingPath = props.result['thinking_markdown'] as string | undefined
+  if ((!mdPath || typeof mdPath !== 'string') && (!thinkingPath || typeof thinkingPath !== 'string')) return null
 
   // Backend returns paths relative to the ACTIVE SESSION sources root.
   // Backward-compat: if the path contains '/sources/', strip prefix up to that.
-  const idx = mdPath.indexOf('/sources/')
-  const relToSources = idx >= 0 ? mdPath.slice(idx + '/sources/'.length) : mdPath
+  const normalize = (p: string) => {
+    const idx = p.indexOf('/sources/')
+    return idx >= 0 ? p.slice(idx + '/sources/'.length) : p
+  }
+  const relToSources = mdPath && typeof mdPath === 'string' ? normalize(mdPath) : ''
+  const relThinking = thinkingPath && typeof thinkingPath === 'string' ? normalize(thinkingPath) : ''
 
   return (
     <div className="mt-2 flex items-center gap-3 text-sm">
-      <Link className="text-blue-700 hover:underline" to={`/view/md?path=${encodeURIComponent(relToSources)}`}>
-        View Markdown
-      </Link>
-      <span className="text-xs text-gray-500">{relToSources}</span>
+      {relToSources ? (
+        <>
+          <Link className="text-blue-700 hover:underline" to={`/view/md?path=${encodeURIComponent(relToSources)}`}>
+            View Markdown
+          </Link>
+          <span className="text-xs text-gray-500">{relToSources}</span>
+        </>
+      ) : null}
+      {relThinking ? (
+        <>
+          <Link className="text-blue-700 hover:underline" to={`/view/md?path=${encodeURIComponent(relThinking)}`}>
+            View AI Log
+          </Link>
+          <span className="text-xs text-gray-500">{relThinking}</span>
+        </>
+      ) : null}
     </div>
   )
 }

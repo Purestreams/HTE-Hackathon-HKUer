@@ -14,6 +14,7 @@ import { JobsPage } from './pages/JobsPage'
 import { LibraryPage } from './pages/LibraryPage'
 import { ViewMarkdownPage } from './pages/ViewMarkdownPage'
 import { ViewPdfPage } from './pages/ViewPdfPage'
+import { ChatPage } from './pages/ChatPage'
 
 const router = createBrowserRouter([
   {
@@ -28,6 +29,7 @@ const router = createBrowserRouter([
       { path: 'snapshots', element: <SnapshotsPage /> },
       { path: 'jobs', element: <JobsPage /> },
       { path: 'library', element: <LibraryPage /> },
+      { path: 'chat', element: <ChatPage /> },
       { path: 'view/md', element: <ViewMarkdownPage /> },
       { path: 'view/pdf', element: <ViewPdfPage /> },
       { path: '*', element: <Navigate to="/" replace /> },

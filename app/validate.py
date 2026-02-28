@@ -1,4 +1,5 @@
 import argparse
+import json
 import os
 import re
 import subprocess
@@ -9,6 +10,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, Iterable, List, Optional, Tuple
 
+import anthropic
 from volcenginesdkarkruntime import Ark
 
 try:
@@ -21,6 +23,8 @@ except Exception:
 
 DEFAULT_PRIMARY_MODEL = "deepseek-v3-2-251201"
 DEFAULT_SECONDARY_MODEL = "doubao-seed-2-0-pro-260215"
+
+MINIMAX_TEXT_MODELS = ["MiniMax-M2.5"]
 
 
 @dataclass(frozen=True)
@@ -58,6 +62,390 @@ def _require_ark_api_key() -> str:
             "Missing ARK_API_KEY. Set it in your shell (export ARK_API_KEY=...)."
         )
     return api_key
+
+
+def _require_minimax_api_key() -> str:
+    api_key = os.environ.get("MINIMAX_API_KEY") or os.environ.get("ANTHROPIC_API_KEY")
+    if not api_key:
+        raise RuntimeError(
+            "Missing MINIMAX_API_KEY (or ANTHROPIC_API_KEY). Set it in your shell (or .env)."
+        )
+    return api_key
+
+
+def _provider_for_model(model: str) -> str:
+    m = str(model or "").strip()
+    if m in MINIMAX_TEXT_MODELS:
+        return "minimax"
+    return "ark"
+
+
+def _build_client_for_model(model: str):
+    provider = _provider_for_model(model)
+    if provider == "ark":
+        return provider, Ark(api_key=_require_ark_api_key())
+    api_key = _require_minimax_api_key()
+    base_url = str(os.environ.get("ANTHROPIC_BASE_URL") or "https://api.minimax.io/anthropic").strip()
+    return provider, anthropic.Anthropic(api_key=api_key, base_url=base_url)
+
+
+def _complete_text(
+    *,
+    provider: str,
+    client,
+    model: str,
+    system: str,
+    user: str,
+    temperature: Optional[float] = None,
+) -> str:
+    if provider == "ark":
+        payload: Dict[str, object] = {
+            "model": model,
+            "messages": [
+                {"role": "system", "content": system},
+                {"role": "user", "content": user},
+            ],
+        }
+        if temperature is not None:
+            payload["temperature"] = temperature
+        resp = client.chat.completions.create(**payload)
+        return resp.choices[0].message.content or ""  # type: ignore[attr-defined]
+
+    payload2: Dict[str, object] = {
+        "model": model,
+        "max_tokens": 4096,
+        "system": system,
+        "messages": [{"role": "user", "content": user}],
+    }
+    if temperature is not None:
+        payload2["temperature"] = temperature
+    msg = client.messages.create(**payload2)
+    parts: List[str] = []
+    for block in (msg.content or []):
+        if getattr(block, "type", None) == "text":
+            parts.append(getattr(block, "text", "") or "")
+    return "".join(parts)
+
+
+def _safe_json_loads(s: str) -> Dict[str, object]:
+    s = (s or "").strip().lstrip("\ufeff")
+    if not s:
+        raise ValueError("empty json")
+
+    if "```" in s:
+        m = re.search(r"```(?:json)?\s*(.*?)```", s, flags=re.IGNORECASE | re.DOTALL)
+        if m:
+            s = (m.group(1) or "").strip()
+
+    lines = s.splitlines()
+    if lines and lines[0].strip().lower() in {"json"}:
+        s = "\n".join(lines[1:]).strip()
+
+    try:
+        obj = json.loads(s)
+        if not isinstance(obj, dict):
+            raise ValueError("json is not an object")
+        return obj
+    except Exception:
+        pass
+
+    start = s.find("{")
+    if start >= 0:
+        dec = json.JSONDecoder()
+        obj, _end = dec.raw_decode(s[start:])
+        if not isinstance(obj, dict):
+            raise ValueError("json is not an object")
+        return obj
+
+    raise ValueError("unable to parse json")
+
+
+def _coerce_verdict(v: object) -> str:
+    vv = str(v or "").strip().lower()
+    if vv in {"correct", "ok", "pass", "true"}:
+        return "correct"
+    if vv in {"incorrect", "wrong", "fail", "false"}:
+        return "incorrect"
+    return "uncertain"
+
+
+def _truncate_text(s: str, *, max_chars: int) -> str:
+    s = s or ""
+    if len(s) <= max_chars:
+        return s
+    return s[:max_chars]
+
+
+def llm_review_mock_pair(
+    *,
+    base: str,
+    paper_path: Path,
+    answers_path: Path,
+    main_model: str,
+    sub_model: str,
+    temperature: Optional[float] = None,
+    max_context_chars: int = 60_000,
+    write_revisions: bool = True,
+) -> Dict[str, object]:
+    paper = paper_path.read_text(encoding="utf-8", errors="ignore")
+    answers = answers_path.read_text(encoding="utf-8", errors="ignore")
+
+    paper = _truncate_text(paper, max_chars=max_context_chars)
+    answers = _truncate_text(answers, max_chars=max_context_chars)
+
+    system = (
+        "You are a rigorous exam validator and editor. "
+        "Given an exam paper and an answer key, verify that the answers match the questions and are internally consistent. "
+        "If something cannot be verified from the given text, mark it as uncertain (do not guess)."
+    )
+    user = (
+        "Return STRICT JSON only (no markdown, no commentary).\n"
+        "Keys: verdict (correct|incorrect|uncertain), issues (array of strings), revised_paper_md (string), revised_answers_md (string).\n"
+        "- If verdict is correct, revised_* can be empty strings.\n"
+        "- If verdict is incorrect, provide corrected revised_* markdown.\n\n"
+        f"[PAPER START]\n{paper}\n[PAPER END]\n\n"
+        f"[ANSWERS START]\n{answers}\n[ANSWERS END]\n"
+    )
+
+    main_provider, main_client = _build_client_for_model(main_model)
+    main_raw = _complete_text(
+        provider=main_provider,
+        client=main_client,
+        model=main_model,
+        system=system,
+        user=user,
+        temperature=temperature,
+    )
+    try:
+        main_obj = _safe_json_loads(main_raw)
+    except Exception:
+        main_obj = {
+            "verdict": "uncertain",
+            "issues": ["main model did not return valid JSON"],
+            "revised_paper_md": "",
+            "revised_answers_md": "",
+            "raw": main_raw,
+        }
+
+    verdict = _coerce_verdict(main_obj.get("verdict"))
+
+    sub_obj: Dict[str, object] = {}
+    consensus_obj: Dict[str, object] = dict(main_obj)
+
+    if verdict != "correct" and sub_model:
+        sub_provider, sub_client = _build_client_for_model(sub_model)
+        sub_system = (
+            "You are the challenger validator. Your job is to critique the main validator's findings and proposed revisions. "
+            "Identify mistakes, missing cases, and propose a better revision if needed."
+        )
+        sub_user = (
+            "Return STRICT JSON only.\n"
+            "Keys: disagreements (array of strings), improved_revised_paper_md (string), improved_revised_answers_md (string).\n\n"
+            f"Main validator JSON:\n{json.dumps(main_obj, ensure_ascii=False)}\n\n"
+            f"[PAPER START]\n{paper}\n[PAPER END]\n\n"
+            f"[ANSWERS START]\n{answers}\n[ANSWERS END]\n"
+        )
+        sub_raw = _complete_text(
+            provider=sub_provider,
+            client=sub_client,
+            model=sub_model,
+            system=sub_system,
+            user=sub_user,
+            temperature=temperature,
+        )
+        try:
+            sub_obj = _safe_json_loads(sub_raw)
+        except Exception:
+            sub_obj = {"disagreements": ["sub model did not return valid JSON"], "raw": sub_raw}
+
+        consensus_system = (
+            "You are the final consensus validator. Reconcile main + challenger outputs and produce a final decision and final revised markdown. "
+            "If something cannot be verified, choose verdict=uncertain."
+        )
+        consensus_user = (
+            "Return STRICT JSON only.\n"
+            "Keys: verdict (correct|incorrect|uncertain), issues (array of strings), revised_paper_md (string), revised_answers_md (string), summary (string).\n\n"
+            f"Main validator JSON:\n{json.dumps(main_obj, ensure_ascii=False)}\n\n"
+            f"Challenger JSON:\n{json.dumps(sub_obj, ensure_ascii=False)}\n\n"
+            f"[PAPER START]\n{paper}\n[PAPER END]\n\n"
+            f"[ANSWERS START]\n{answers}\n[ANSWERS END]\n"
+        )
+        consensus_raw = _complete_text(
+            provider=main_provider,
+            client=main_client,
+            model=main_model,
+            system=consensus_system,
+            user=consensus_user,
+            temperature=temperature,
+        )
+        try:
+            consensus_obj = _safe_json_loads(consensus_raw)
+        except Exception:
+            consensus_obj = dict(main_obj)
+            _existing_issues = consensus_obj.get("issues")
+            if isinstance(_existing_issues, list):
+                _issues_list = [str(x) for x in _existing_issues]
+            else:
+                _issues_list = []
+            consensus_obj["issues"] = _issues_list + ["consensus did not return valid JSON"]
+            consensus_obj["raw"] = consensus_raw
+
+    revised_paper = str(consensus_obj.get("revised_paper_md") or "")
+    revised_answers = str(consensus_obj.get("revised_answers_md") or "")
+    revised_paths: Dict[str, str] = {}
+    if write_revisions and (revised_paper.strip() or revised_answers.strip()):
+        out_dir = paper_path.parent / "validate_revisions"
+        out_dir.mkdir(parents=True, exist_ok=True)
+        if revised_paper.strip():
+            rp = out_dir / f"{base}_paper_revised.md"
+            rp.write_text(revised_paper, encoding="utf-8")
+            revised_paths["paper"] = str(rp)
+        if revised_answers.strip():
+            ra = out_dir / f"{base}_answers_revised.md"
+            ra.write_text(revised_answers, encoding="utf-8")
+            revised_paths["answers"] = str(ra)
+
+    return {
+        "type": "pair",
+        "base": base,
+        "paper": str(paper_path),
+        "answers": str(answers_path),
+        "main_model": main_model,
+        "sub_model": sub_model,
+        "verdict": _coerce_verdict(consensus_obj.get("verdict")),
+        "issues": consensus_obj.get("issues") or [],
+        "summary": consensus_obj.get("summary") or "",
+        "revisions": revised_paths,
+        "main": main_obj,
+        "sub": sub_obj,
+    }
+
+
+def llm_review_mock_combined(
+    *,
+    md_path: Path,
+    main_model: str,
+    sub_model: str,
+    temperature: Optional[float] = None,
+    max_context_chars: int = 60_000,
+    write_revisions: bool = True,
+) -> Dict[str, object]:
+    text = md_path.read_text(encoding="utf-8", errors="ignore")
+    text = _truncate_text(text, max_chars=max_context_chars)
+
+    system = (
+        "You are a rigorous mockpaper validator and editor. "
+        "The document contains questions and inline answers. Verify correctness and internal consistency. "
+        "If you cannot verify from the text, mark uncertain and avoid guessing."
+    )
+    user = (
+        "Return STRICT JSON only.\n"
+        "Keys: verdict (correct|incorrect|uncertain), issues (array of strings), revised_markdown (string).\n"
+        "- If verdict is correct, revised_markdown can be empty.\n"
+        "- If incorrect, provide a full revised_markdown.\n\n"
+        f"[DOC START]\n{text}\n[DOC END]\n"
+    )
+
+    main_provider, main_client = _build_client_for_model(main_model)
+    main_raw = _complete_text(
+        provider=main_provider,
+        client=main_client,
+        model=main_model,
+        system=system,
+        user=user,
+        temperature=temperature,
+    )
+    try:
+        main_obj = _safe_json_loads(main_raw)
+    except Exception:
+        main_obj = {
+            "verdict": "uncertain",
+            "issues": ["main model did not return valid JSON"],
+            "revised_markdown": "",
+            "raw": main_raw,
+        }
+
+    verdict = _coerce_verdict(main_obj.get("verdict"))
+    sub_obj: Dict[str, object] = {}
+    consensus_obj: Dict[str, object] = dict(main_obj)
+
+    if verdict != "correct" and sub_model:
+        sub_provider, sub_client = _build_client_for_model(sub_model)
+        sub_system = (
+            "You are the challenger validator. Critique the main validator's findings and proposed revision. "
+            "Propose a better revision if needed."
+        )
+        sub_user = (
+            "Return STRICT JSON only.\n"
+            "Keys: disagreements (array of strings), improved_revised_markdown (string).\n\n"
+            f"Main validator JSON:\n{json.dumps(main_obj, ensure_ascii=False)}\n\n"
+            f"[DOC START]\n{text}\n[DOC END]\n"
+        )
+        sub_raw = _complete_text(
+            provider=sub_provider,
+            client=sub_client,
+            model=sub_model,
+            system=sub_system,
+            user=sub_user,
+            temperature=temperature,
+        )
+        try:
+            sub_obj = _safe_json_loads(sub_raw)
+        except Exception:
+            sub_obj = {"disagreements": ["sub model did not return valid JSON"], "raw": sub_raw}
+
+        consensus_system = (
+            "You are the final consensus validator. Reconcile main + challenger outputs and produce a final decision and final revised markdown. "
+            "If something cannot be verified, choose verdict=uncertain."
+        )
+        consensus_user = (
+            "Return STRICT JSON only.\n"
+            "Keys: verdict (correct|incorrect|uncertain), issues (array of strings), revised_markdown (string), summary (string).\n\n"
+            f"Main validator JSON:\n{json.dumps(main_obj, ensure_ascii=False)}\n\n"
+            f"Challenger JSON:\n{json.dumps(sub_obj, ensure_ascii=False)}\n\n"
+            f"[DOC START]\n{text}\n[DOC END]\n"
+        )
+        consensus_raw = _complete_text(
+            provider=main_provider,
+            client=main_client,
+            model=main_model,
+            system=consensus_system,
+            user=consensus_user,
+            temperature=temperature,
+        )
+        try:
+            consensus_obj = _safe_json_loads(consensus_raw)
+        except Exception:
+            consensus_obj = dict(main_obj)
+            _existing_issues = consensus_obj.get("issues")
+            if isinstance(_existing_issues, list):
+                _issues_list = [str(x) for x in _existing_issues]
+            else:
+                _issues_list = []
+            consensus_obj["issues"] = _issues_list + ["consensus did not return valid JSON"]
+            consensus_obj["raw"] = consensus_raw
+
+    revised_md = str(consensus_obj.get("revised_markdown") or "")
+    revised_path: Optional[str] = None
+    if write_revisions and revised_md.strip():
+        out_dir = md_path.parent / "validate_revisions"
+        out_dir.mkdir(parents=True, exist_ok=True)
+        out_path = out_dir / f"{md_path.stem}_revised.md"
+        out_path.write_text(revised_md, encoding="utf-8")
+        revised_path = str(out_path)
+
+    return {
+        "type": "combined",
+        "file": str(md_path),
+        "main_model": main_model,
+        "sub_model": sub_model,
+        "verdict": _coerce_verdict(consensus_obj.get("verdict")),
+        "issues": consensus_obj.get("issues") or [],
+        "summary": consensus_obj.get("summary") or "",
+        "revision": revised_path,
+        "main": main_obj,
+        "sub": sub_obj,
+    }
 
 
 def iter_markdown_files(sources_dir: Path) -> List[Path]:

@@ -19,3 +19,7 @@ evaluate
 seqeval
 
 volcengine-python-sdk[ark]
+
+llama-index
+llama-index-llms-openai
+llama-index-embeddings-openai
