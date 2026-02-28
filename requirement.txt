@@ -4,6 +4,9 @@ exa-py
 python-dotenv
 openai
 
+flask[async]
+flask-cors
+
 pdf2image
 pillow
 pytesseract
