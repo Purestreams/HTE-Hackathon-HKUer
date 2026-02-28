@@ -1,6 +1,13 @@
 import os
 from volcenginesdkarkruntime import Ark
 
+try:
+    from dotenv import load_dotenv
+
+    load_dotenv()
+except Exception:
+    pass
+
 api_key = os.environ.get("ARK_API_KEY")
 if not api_key:
     raise RuntimeError(
@@ -21,4 +28,4 @@ completion = client.chat.completions.create(
         {"role": "user", "content": "Say hello in one sentence."}
     ]
 )
-print(completion.choices[0].message)
+print(completion.choices[0].message) # type: ignore

@@ -6,6 +6,16 @@ from typing import List, Optional, Tuple
 
 from volcenginesdkarkruntime import Ark
 
+try:
+    from dotenv import load_dotenv
+
+    load_dotenv()
+except Exception:
+    pass
+
+
+REFUSE_TOO_IMAGE_HEAVY_SENTINEL = "REFUSE_TOO_IMAGE_HEAVY"
+
 
 def _require_ark_api_key() -> str:
     api_key = os.environ.get("ARK_API_KEY")
@@ -60,7 +70,7 @@ def extract_text_from_pdf(
         n = total if max_pages is None else min(total, max_pages)
         for i in range(n):
             page = doc.load_page(i)
-            t = (page.get_text("text") or "").strip()
+            t = (page.get_text("text") or "").strip() # type: ignore
             if per_page_char_limit and len(t) > per_page_char_limit:
                 t = t[:per_page_char_limit] + "\n…(truncated)"
             texts.append(t)
@@ -117,7 +127,7 @@ def render_pdf_to_images(
         str(pdf_path),
         dpi=dpi,
         first_page=1,
-        last_page=None if max_pages is None else max_pages,
+        last_page=None if max_pages is None else max_pages, # type: ignore
     )
     out_paths = []
     for i, img in enumerate(pil_images):
@@ -130,6 +140,8 @@ def render_pdf_to_images(
 def build_pdf_to_markdown_prompt(
     extracted_text_by_page: List[str],
     overall_char_limit: int = 20000,
+    *,
+    refuse_if_too_image_heavy: bool = True,
 ) -> str:
     chunks: List[str] = []
     used = 0
@@ -153,6 +165,12 @@ def build_pdf_to_markdown_prompt(
         "- If content is a scanned page, rely on the image; if selectable text is provided below, use it to improve accuracy.\n"
         "- Keep the output as clean Markdown only (no preamble).\n"
     )
+    if refuse_if_too_image_heavy:
+        instructions += (
+            "- IMPORTANT: If the document is predominantly visual imagery (photos/art/comics/posters/diagrams without enough text) "
+            "and a faithful Markdown representation would mainly be subjective descriptions of images, then refuse. "
+            f"In that case output EXACTLY this token and nothing else: {REFUSE_TOO_IMAGE_HEAVY_SENTINEL}\n"
+        )
     if extracted:
         return instructions + "\n\nSelectable text extracted from the PDF (may be incomplete):\n" + extracted
     return instructions
@@ -169,10 +187,8 @@ def convert_pdf_to_markdown(
     per_page_text_char_limit: int = 8000,
     overall_text_char_limit: int = 20000,
     temperature: Optional[float] = None,
+    refuse_if_too_image_heavy: bool = True,
 ) -> Tuple[str, List[Path]]:
-    api_key = _require_ark_api_key()
-    client = Ark(api_key=api_key)
-
     pdf_path = pdf_path.expanduser().resolve()
     output_md_path = output_md_path.expanduser().resolve()
     output_md_path.parent.mkdir(parents=True, exist_ok=True)
@@ -185,11 +201,15 @@ def convert_pdf_to_markdown(
         per_page_char_limit=per_page_text_char_limit,
     )
 
-    prompt_text = build_pdf_to_markdown_prompt(extracted_text, overall_char_limit=overall_text_char_limit)
+    prompt_text = build_pdf_to_markdown_prompt(
+        extracted_text,
+        overall_char_limit=overall_text_char_limit,
+        refuse_if_too_image_heavy=refuse_if_too_image_heavy,
+    )
 
     content_blocks = [{"type": "text", "text": prompt_text}]
     for p in image_paths:
-        content_blocks.append({"type": "image_url", "image_url": {"url": _encode_image_as_data_url(p)}})
+        content_blocks.append({"type": "image_url", "image_url": {"url": _encode_image_as_data_url(p)}}) # type: ignore
 
     payload = {
         "model": model,
@@ -203,12 +223,54 @@ def convert_pdf_to_markdown(
     if temperature is not None:
         payload["temperature"] = temperature
 
+    api_key = _require_ark_api_key()
+    client = Ark(api_key=api_key)
     resp = client.chat.completions.create(**payload)
-    msg = resp.choices[0].message
+    msg = resp.choices[0].message # type: ignore
     markdown = msg.content or ""
+
+    if refuse_if_too_image_heavy and markdown.strip() == REFUSE_TOO_IMAGE_HEAVY_SENTINEL:
+        raise RuntimeError(
+            "Refused: PDF appears too image-heavy to represent as Markdown without subjective image descriptions."
+        )
 
     output_md_path.write_text(markdown, encoding="utf-8")
     return markdown, image_paths
+
+
+def pdf_diagnostics(
+    pdf_path: Path,
+    max_pages: Optional[int] = None,
+) -> dict:
+    """Lightweight stats for debugging preprocessing without calling the model."""
+    pdf_path = pdf_path.expanduser().resolve()
+    embedded_text = extract_text_from_pdf(pdf_path, max_pages=max_pages)
+    per_page_text_chars = [len(t or "") for t in embedded_text]
+    per_page_image_counts: List[int] = []
+
+    try:
+        import fitz  # type: ignore
+
+        doc = fitz.open(str(pdf_path))
+        try:
+            total = doc.page_count
+            n = total if max_pages is None else min(total, max_pages)
+            for i in range(n):
+                page = doc.load_page(i)
+                per_page_image_counts.append(len(page.get_images(full=True)))
+        finally:
+            doc.close()
+    except Exception:
+        per_page_image_counts = []
+
+    return {
+        "pdf": str(pdf_path),
+        "pages_considered": len(per_page_text_chars),
+        "per_page_text_chars": per_page_text_chars,
+        "total_text_chars": sum(per_page_text_chars),
+        "per_page_image_counts": per_page_image_counts,
+        "total_images": sum(per_page_image_counts) if per_page_image_counts else None,
+    }
 
 
 def main() -> int:
@@ -223,15 +285,41 @@ def main() -> int:
     parser.add_argument("--max-pages", type=int, default=None, help="Only process the first N pages")
     parser.add_argument("--dpi", type=int, default=300, help="Render DPI for page images")
     parser.add_argument("--temperature", type=float, default=None, help="Optional model temperature")
+    parser.add_argument(
+        "--allow-image-heavy",
+        action="store_true",
+        help=f"Do not refuse when image-heavy (disables {REFUSE_TOO_IMAGE_HEAVY_SENTINEL} logic)",
+    )
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Preprocess only: render images + extract text and print diagnostics (no Ark call, no ARK_API_KEY needed).",
+    )
     args = parser.parse_args()
 
+    pdf_path = Path(args.pdf)
+    out_path = Path(args.out)
+
+    if args.dry_run:
+        pdf_path = pdf_path.expanduser().resolve()
+        out_path = out_path.expanduser().resolve()
+        images_dir = out_path.parent / "_pdf_images" / pdf_path.stem
+        image_paths = render_pdf_to_images(pdf_path, images_dir, max_pages=args.max_pages, dpi=args.dpi)
+        print({
+            "rendered_images": len(image_paths),
+            "images_dir": str(images_dir),
+            "diagnostics": pdf_diagnostics(pdf_path, max_pages=args.max_pages),
+        })
+        return 0
+
     convert_pdf_to_markdown(
-        Path(args.pdf),
-        Path(args.out),
+        pdf_path,
+        out_path,
         model=args.model,
         max_pages=args.max_pages,
         dpi=args.dpi,
         temperature=args.temperature,
+        refuse_if_too_image_heavy=not args.allow_image_heavy,
     )
     return 0
 
