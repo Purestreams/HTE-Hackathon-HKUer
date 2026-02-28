@@ -8,6 +8,22 @@ Lighthouse assists real-world learning in an automated workflow, ingests PDF pap
 
 - Hosted demo: https://win7.win/HTE-Hackathon-HKUer/demo/index.html (static page)
 
+## Frontend Pages
+
+The React UI includes these pages/routes:
+
+- `/` — Dashboard (overview + quick navigation)
+- `/upload` — Upload files into the current session
+- `/ingest/pdf` — PDF → Markdown ingest (smart routing)
+- `/mockpaper` — Generate practice/mock paper from session sources
+- `/validate` — Validation + consensus-style review with streaming logs
+- `/library` — Browse session files; view Markdown/PDF; export to PDF
+- `/chat` — Ask questions over selected session files (RAG)
+- `/snapshots` — Create/activate/fork source snapshots
+- `/jobs` — View job history and job status
+- `/view/md?path=...` — Render a Markdown file
+- `/view/pdf?path=...` — View a PDF file
+
 ## Detailed Summary
 
 Lighthouse is designed to streamline the academic lifecycle of study materials—from raw PDF papers to validated mock examinations. Unlike broad AI tools, ighthouse provides a **session-centric workspace** where all documents, snapshots, and AI interactions are pinned to a specific context.
