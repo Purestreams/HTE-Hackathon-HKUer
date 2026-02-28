@@ -8,6 +8,41 @@ Lighthouse assists real-world learning in an automated workflow, ingests PDF pap
 
 - Hosted demo: https://win7.win/HTE-Hackathon-HKUer/demo/index.html (static page)
 
+---
+
+## Special award requirements
+
+This section is written for the three sponsor awards. It’s intentionally explicit about what is already implemented vs. what is planned/extendable.
+
+### MiniMax Creative Usage Award (HKD 15,000)
+
+- **MiniMax API usage (implemented)**: We use MiniMax’s LLM via the Anthropic-compatible endpoint (`ANTHROPIC_BASE_URL=https://api.minimax.io/anthropic`) for both generation and evaluation workflows.
+   - Mockpaper generation can run on MiniMax (`MOCKPAPER_PROVIDER=minimax`, default model `MiniMax-M2.5`) in [app/mockpaper.py](app/mockpaper.py).
+   - Consensus validation can run MiniMax as a reviewer model (`MiniMax-M2.5`) in [app/validate.py](app/validate.py).
+- **Creative angle (implemented)**: Our “Consensus Engine” is a transparent multi-agent learning experience: two models debate, converge, and produce a final conclusion, with the full communication + conclusion saved into a Markdown report users can keep and audit.
+- **Multimodal (video/audio/music) tools (planned extension)**: The current repo focuses on the learning workflow + consensus validation. For this award’s “Must: video/audio/music tools” requirement, the next step is to add an optional *Explain-it-like-a-podcast* mode:
+   - Generate a short audio narration of the mockpaper feedback (audio/TTS).
+   - Generate a 30–60s recap video (video tool) as a “study reel”.
+   - Generate a low-volume focus track (music tool) attached to a session.
+
+### RevisionDojo Future of Learning Award (HKD 15,000)
+
+- **Reimagined feedback loop (implemented)**: Instead of “generate once and hope”, we treat feedback as a first-class step. The Validate stage isn’t a single model score — it’s a two-model discussion that proposes fixes and outputs a revised document.
+- **Supports both strong and struggling learners (implemented)**:
+   - Strong learners get faster iteration and higher-quality practice via configurable mockpaper generation.
+   - Struggling learners benefit from step-by-step validation notes, issue lists, and an auditable consensus conclusion rather than a black-box answer.
+- **Pedagogy-aligned workflow (implemented)**: session-scoped sources + snapshots encourage deliberate practice and spaced iteration (you can fork sources, regenerate, revalidate, and compare).
+
+### OAX Foundation AI EdTech Platform Award (HKD 15,000)
+
+- **Content overload → structured pipeline (implemented)**: Lighthouse turns a pile of PDFs into a curated session library (PDF→Markdown ingest), then generates practice + validation artifacts that are easier to consume than raw papers.
+- **Timesaving & learning acceleration (implemented)**: one-click ingest and batch workflows (multi-file upload/ingest) plus streaming job logs reduce “busy work” and waiting time.
+- **Personalized, future-proof learning path (partially implemented)**:
+   - Implemented: session isolation, snapshots, and chat over session docs.
+   - Next: add true retrieval (embeddings + citations) and continuously updated reading lists for fast-moving domains.
+
+---
+
 ## Frontend Pages
 
 The React UI includes these pages/routes:
