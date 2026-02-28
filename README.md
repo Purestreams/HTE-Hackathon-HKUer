@@ -1,10 +1,10 @@
-# HTE Hackathon: ExamAI Platform
+# HTE Hackathon: EduAI Platform
 
 A session-scoped document workflow platform for automated PDF ingestion, mock paper generation, and two-model consensus validation. Features a "fake RAG" streaming chat and PDF export.
 
 ## Detailed Summary
 
-ExamAI is designed to streamline the academic lifecycle of study materials—from raw PDF lecture notes to validated mock examinations. Unlike broad AI tools, ExamAI provides a **session-centric workspace** where all documents, snapshots, and AI interactions are pinned to a specific context (e.g., "COMP3211 Course" or "Midterm Prep").
+EduAI is designed to streamline the academic lifecycle of study materials—from raw PDF lecture notes to validated mock examinations. Unlike broad AI tools, EduAI provides a **session-centric workspace** where all documents, snapshots, and AI interactions are pinned to a specific context (e.g., "COMP3211 Course" or "Midterm Prep").
 
 ### Core Workflow
 1.  **Ingest**: High-fidelity conversion of PDFs to Markdown. It intelligently chooses between fast text extraction and vision-based conversion (using Ark/Doubao models) to handle complex layouts and diagrams.

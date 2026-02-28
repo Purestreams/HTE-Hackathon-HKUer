@@ -176,6 +176,139 @@ def _truncate_text(s: str, *, max_chars: int) -> str:
     return s[:max_chars]
 
 
+def _split_md_sections(text: str) -> Dict[str, str]:
+    """Split markdown text into heading->content buckets (case-insensitive keys)."""
+    text = (text or "").replace("\r\n", "\n")
+    lines = text.split("\n")
+    sections: Dict[str, List[str]] = {}
+    cur = "__root__"
+    sections[cur] = []
+
+    for ln in lines:
+        m = re.match(r"^\s{0,3}#{1,6}\s+(.+?)\s*$", ln)
+        if m:
+            cur = re.sub(r"\s+", " ", (m.group(1) or "").strip().lower())
+            sections.setdefault(cur, [])
+            continue
+        sections.setdefault(cur, []).append(ln)
+
+    return {k: "\n".join(v).strip() for k, v in sections.items()}
+
+
+def _find_section(sections: Dict[str, str], keys: List[str]) -> str:
+    if not sections:
+        return ""
+    lowered = {k.lower(): v for k, v in sections.items()}
+    for key in keys:
+        k = key.lower().strip()
+        if k in lowered:
+            return lowered[k]
+    # fuzzy contains fallback
+    for k, v in lowered.items():
+        for key in keys:
+            kk = key.lower().strip()
+            if kk and kk in k:
+                return v
+    return ""
+
+
+def _extract_list_items(text: str) -> List[str]:
+    out: List[str] = []
+    for ln in (text or "").splitlines():
+        m = re.match(r"^\s*(?:[-*+]\s+|\d+\.\s+)(.+?)\s*$", ln)
+        if m:
+            item = (m.group(1) or "").strip()
+            if item:
+                out.append(item)
+    if out:
+        return out
+    # Fallback: split paragraph by semicolon/newlines.
+    raw = (text or "").strip()
+    if not raw:
+        return []
+    chunks = [c.strip(" -\t") for c in re.split(r"[\n;]+", raw) if c.strip()]
+    return chunks[:30]
+
+
+def _extract_first_fenced_block(text: str, *, preferred_langs: Optional[List[str]] = None) -> str:
+    preferred = [x.lower() for x in (preferred_langs or [])]
+    matches = re.finditer(r"```([a-zA-Z0-9_+-]*)\s*\n(.*?)```", text or "", flags=re.DOTALL)
+    found: List[Tuple[str, str]] = []
+    for m in matches:
+        lang = (m.group(1) or "").strip().lower()
+        body = (m.group(2) or "").strip()
+        found.append((lang, body))
+    if not found:
+        return ""
+    if preferred:
+        for lang, body in found:
+            if lang in preferred:
+                return body
+    return found[0][1]
+
+
+def _extract_verdict_from_text(text: str) -> str:
+    # Prefer explicit "Verdict:" lines.
+    m = re.search(r"(?im)^\s*verdict\s*:\s*(correct|incorrect|uncertain)\s*$", text or "")
+    if m:
+        return _coerce_verdict(m.group(1))
+    # Fallback to first keyword occurrence.
+    m2 = re.search(r"\b(correct|incorrect|uncertain)\b", text or "", flags=re.IGNORECASE)
+    if m2:
+        return _coerce_verdict(m2.group(1))
+    return "uncertain"
+
+
+def _parse_review_markdown(text: str, *, pair: bool) -> Dict[str, object]:
+    sections = _split_md_sections(text)
+    verdict_text = _find_section(sections, ["verdict", "final verdict", "decision"])
+    verdict = _extract_verdict_from_text(verdict_text or text)
+
+    issues_text = _find_section(sections, ["issues", "errors", "problems", "findings"])
+    issues = _extract_list_items(issues_text)
+
+    summary = _find_section(sections, ["summary", "conclusion", "final conclusion"]).strip()
+
+    if pair:
+        paper_txt = _find_section(sections, ["revised paper", "revised paper markdown", "paper revision"])
+        answers_txt = _find_section(sections, ["revised answers", "revised answers markdown", "answers revision"])
+        revised_paper_md = _extract_first_fenced_block(paper_txt, preferred_langs=["markdown", "md"]) or paper_txt.strip()
+        revised_answers_md = _extract_first_fenced_block(answers_txt, preferred_langs=["markdown", "md"]) or answers_txt.strip()
+        return {
+            "verdict": verdict,
+            "issues": issues,
+            "summary": summary,
+            "revised_paper_md": revised_paper_md,
+            "revised_answers_md": revised_answers_md,
+        }
+
+    revised_txt = _find_section(sections, ["revised markdown", "revised document", "revision"])
+    revised_md = _extract_first_fenced_block(revised_txt, preferred_langs=["markdown", "md"]) or revised_txt.strip()
+    return {
+        "verdict": verdict,
+        "issues": issues,
+        "summary": summary,
+        "revised_markdown": revised_md,
+    }
+
+
+def _parse_challenger_markdown(text: str, *, pair: bool) -> Dict[str, object]:
+    sections = _split_md_sections(text)
+    disagreements_txt = _find_section(sections, ["disagreements", "critiques", "challenges", "counterpoints"])
+    disagreements = _extract_list_items(disagreements_txt)
+    out: Dict[str, object] = {"disagreements": disagreements}
+    if pair:
+        p_txt = _find_section(sections, ["improved revised paper", "improved paper", "challenger paper revision"])
+        a_txt = _find_section(sections, ["improved revised answers", "improved answers", "challenger answers revision"])
+        out["improved_revised_paper_md"] = _extract_first_fenced_block(p_txt, preferred_langs=["markdown", "md"]) or p_txt.strip()
+        out["improved_revised_answers_md"] = _extract_first_fenced_block(a_txt, preferred_langs=["markdown", "md"]) or a_txt.strip()
+        return out
+
+    r_txt = _find_section(sections, ["improved revised markdown", "improved revision", "challenger revision"])
+    out["improved_revised_markdown"] = _extract_first_fenced_block(r_txt, preferred_langs=["markdown", "md"]) or r_txt.strip()
+    return out
+
+
 def llm_review_mock_pair(
     *,
     base: str,
@@ -195,14 +328,23 @@ def llm_review_mock_pair(
 
     system = (
         "You are a rigorous exam validator and editor. "
-        "Given an exam paper and an answer key, verify that the answers match the questions and are internally consistent. "
-        "If something cannot be verified from the given text, mark it as uncertain (do not guess)."
+        "Given an exam paper and an answer key, verify consistency and correctness. "
+        "If something cannot be verified from the provided text, state uncertain and do not guess. "
+        "Return plain Markdown text only (no JSON)."
     )
     user = (
-        "Return STRICT JSON only (no markdown, no commentary).\n"
-        "Keys: verdict (correct|incorrect|uncertain), issues (array of strings), revised_paper_md (string), revised_answers_md (string).\n"
-        "- If verdict is correct, revised_* can be empty strings.\n"
-        "- If verdict is incorrect, provide corrected revised_* markdown.\n\n"
+        "Please produce a Markdown report with EXACT sections:\n"
+        "## Verdict\n"
+        "correct|incorrect|uncertain\n\n"
+        "## Issues\n"
+        "- bullet points (leave empty if none)\n\n"
+        "## Summary\n"
+        "short paragraph\n\n"
+        "## Revised Paper\n"
+        "```markdown\n...full corrected paper markdown if needed...\n```\n\n"
+        "## Revised Answers\n"
+        "```markdown\n...full corrected answers markdown if needed...\n```\n\n"
+        "If verdict is correct, Revised sections can be empty.\n\n"
         f"[PAPER START]\n{paper}\n[PAPER END]\n\n"
         f"[ANSWERS START]\n{answers}\n[ANSWERS END]\n"
     )
@@ -216,32 +358,27 @@ def llm_review_mock_pair(
         user=user,
         temperature=temperature,
     )
-    try:
-        main_obj = _safe_json_loads(main_raw)
-    except Exception:
-        main_obj = {
-            "verdict": "uncertain",
-            "issues": ["main model did not return valid JSON"],
-            "revised_paper_md": "",
-            "revised_answers_md": "",
-            "raw": main_raw,
-        }
+    main_obj = _parse_review_markdown(main_raw, pair=True)
 
     verdict = _coerce_verdict(main_obj.get("verdict"))
 
     sub_obj: Dict[str, object] = {}
     consensus_obj: Dict[str, object] = dict(main_obj)
+    consensus_raw = ""
 
     if verdict != "correct" and sub_model:
         sub_provider, sub_client = _build_client_for_model(sub_model)
         sub_system = (
             "You are the challenger validator. Your job is to critique the main validator's findings and proposed revisions. "
-            "Identify mistakes, missing cases, and propose a better revision if needed."
+            "Identify mistakes, missing cases, and propose a better revision if needed. "
+            "Return plain Markdown text only (no JSON)."
         )
         sub_user = (
-            "Return STRICT JSON only.\n"
-            "Keys: disagreements (array of strings), improved_revised_paper_md (string), improved_revised_answers_md (string).\n\n"
-            f"Main validator JSON:\n{json.dumps(main_obj, ensure_ascii=False)}\n\n"
+            "Please produce a Markdown report with EXACT sections:\n"
+            "## Disagreements\n- bullet points\n\n"
+            "## Improved Revised Paper\n```markdown\n...optional improved paper...\n```\n\n"
+            "## Improved Revised Answers\n```markdown\n...optional improved answers...\n```\n\n"
+            f"Main validator report:\n\n{main_raw}\n\n"
             f"[PAPER START]\n{paper}\n[PAPER END]\n\n"
             f"[ANSWERS START]\n{answers}\n[ANSWERS END]\n"
         )
@@ -253,20 +390,22 @@ def llm_review_mock_pair(
             user=sub_user,
             temperature=temperature,
         )
-        try:
-            sub_obj = _safe_json_loads(sub_raw)
-        except Exception:
-            sub_obj = {"disagreements": ["sub model did not return valid JSON"], "raw": sub_raw}
+        sub_obj = _parse_challenger_markdown(sub_raw, pair=True)
 
         consensus_system = (
             "You are the final consensus validator. Reconcile main + challenger outputs and produce a final decision and final revised markdown. "
-            "If something cannot be verified, choose verdict=uncertain."
+            "If something cannot be verified, choose verdict=uncertain. "
+            "Return plain Markdown text only (no JSON)."
         )
         consensus_user = (
-            "Return STRICT JSON only.\n"
-            "Keys: verdict (correct|incorrect|uncertain), issues (array of strings), revised_paper_md (string), revised_answers_md (string), summary (string).\n\n"
-            f"Main validator JSON:\n{json.dumps(main_obj, ensure_ascii=False)}\n\n"
-            f"Challenger JSON:\n{json.dumps(sub_obj, ensure_ascii=False)}\n\n"
+            "Please produce a final Markdown report with EXACT sections:\n"
+            "## Verdict\ncorrect|incorrect|uncertain\n\n"
+            "## Issues\n- bullet points\n\n"
+            "## Summary\nshort paragraph\n\n"
+            "## Revised Paper\n```markdown\n...final corrected paper if needed...\n```\n\n"
+            "## Revised Answers\n```markdown\n...final corrected answers if needed...\n```\n\n"
+            f"Main validator report:\n\n{main_raw}\n\n"
+            f"Challenger report:\n\n{sub_raw}\n\n"
             f"[PAPER START]\n{paper}\n[PAPER END]\n\n"
             f"[ANSWERS START]\n{answers}\n[ANSWERS END]\n"
         )
@@ -278,17 +417,7 @@ def llm_review_mock_pair(
             user=consensus_user,
             temperature=temperature,
         )
-        try:
-            consensus_obj = _safe_json_loads(consensus_raw)
-        except Exception:
-            consensus_obj = dict(main_obj)
-            _existing_issues = consensus_obj.get("issues")
-            if isinstance(_existing_issues, list):
-                _issues_list = [str(x) for x in _existing_issues]
-            else:
-                _issues_list = []
-            consensus_obj["issues"] = _issues_list + ["consensus did not return valid JSON"]
-            consensus_obj["raw"] = consensus_raw
+        consensus_obj = _parse_review_markdown(consensus_raw, pair=True)
 
     revised_paper = str(consensus_obj.get("revised_paper_md") or "")
     revised_answers = str(consensus_obj.get("revised_answers_md") or "")
@@ -305,6 +434,27 @@ def llm_review_mock_pair(
             ra.write_text(revised_answers, encoding="utf-8")
             revised_paths["answers"] = str(ra)
 
+    final_conclusion_md: List[str] = []
+    final_conclusion_md.append("# Final Consensus Conclusion")
+    final_conclusion_md.append("")
+    final_conclusion_md.append(f"- Verdict: **{_coerce_verdict(consensus_obj.get('verdict'))}**")
+    final_conclusion_md.append(f"- Main model: `{main_model}`")
+    if sub_model:
+        final_conclusion_md.append(f"- Sub model: `{sub_model}`")
+    final_conclusion_md.append("")
+    final_conclusion_md.append("## Issues")
+    issues_out = consensus_obj.get("issues")
+    if isinstance(issues_out, list) and issues_out:
+        for x in issues_out:
+            final_conclusion_md.append(f"- {x}")
+    else:
+        final_conclusion_md.append("- (none)")
+    if str(consensus_obj.get("summary") or "").strip():
+        final_conclusion_md.append("")
+        final_conclusion_md.append("## Summary")
+        final_conclusion_md.append("")
+        final_conclusion_md.append(str(consensus_obj.get("summary") or "").strip())
+
     return {
         "type": "pair",
         "base": base,
@@ -316,8 +466,10 @@ def llm_review_mock_pair(
         "issues": consensus_obj.get("issues") or [],
         "summary": consensus_obj.get("summary") or "",
         "revisions": revised_paths,
-        "main": main_obj,
-        "sub": sub_obj,
+        "main": {"parsed": main_obj, "raw": main_raw},
+        "sub": {"parsed": sub_obj, "raw": sub_raw if verdict != "correct" and sub_model else ""},
+        "consensus": {"parsed": consensus_obj, "raw": consensus_raw},
+        "final_conclusion_markdown": "\n".join(final_conclusion_md).strip() + "\n",
     }
 
 
@@ -336,13 +488,20 @@ def llm_review_mock_combined(
     system = (
         "You are a rigorous mockpaper validator and editor. "
         "The document contains questions and inline answers. Verify correctness and internal consistency. "
-        "If you cannot verify from the text, mark uncertain and avoid guessing."
+        "If you cannot verify from the text, mark uncertain and avoid guessing. "
+        "Return plain Markdown text only (no JSON)."
     )
     user = (
-        "Return STRICT JSON only.\n"
-        "Keys: verdict (correct|incorrect|uncertain), issues (array of strings), revised_markdown (string).\n"
-        "- If verdict is correct, revised_markdown can be empty.\n"
-        "- If incorrect, provide a full revised_markdown.\n\n"
+        "Please produce a Markdown report with EXACT sections:\n"
+        "## Verdict\n"
+        "correct|incorrect|uncertain\n\n"
+        "## Issues\n"
+        "- bullet points (leave empty if none)\n\n"
+        "## Summary\n"
+        "short paragraph\n\n"
+        "## Revised Markdown\n"
+        "```markdown\n...full corrected markdown if needed...\n```\n\n"
+        "If verdict is correct, Revised Markdown can be empty.\n\n"
         f"[DOC START]\n{text}\n[DOC END]\n"
     )
 
@@ -355,30 +514,24 @@ def llm_review_mock_combined(
         user=user,
         temperature=temperature,
     )
-    try:
-        main_obj = _safe_json_loads(main_raw)
-    except Exception:
-        main_obj = {
-            "verdict": "uncertain",
-            "issues": ["main model did not return valid JSON"],
-            "revised_markdown": "",
-            "raw": main_raw,
-        }
+    main_obj = _parse_review_markdown(main_raw, pair=False)
 
     verdict = _coerce_verdict(main_obj.get("verdict"))
     sub_obj: Dict[str, object] = {}
     consensus_obj: Dict[str, object] = dict(main_obj)
+    consensus_raw = ""
 
     if verdict != "correct" and sub_model:
         sub_provider, sub_client = _build_client_for_model(sub_model)
         sub_system = (
             "You are the challenger validator. Critique the main validator's findings and proposed revision. "
-            "Propose a better revision if needed."
+            "Propose a better revision if needed. Return plain Markdown text only (no JSON)."
         )
         sub_user = (
-            "Return STRICT JSON only.\n"
-            "Keys: disagreements (array of strings), improved_revised_markdown (string).\n\n"
-            f"Main validator JSON:\n{json.dumps(main_obj, ensure_ascii=False)}\n\n"
+            "Please produce a Markdown report with EXACT sections:\n"
+            "## Disagreements\n- bullet points\n\n"
+            "## Improved Revised Markdown\n```markdown\n...optional improved revision...\n```\n\n"
+            f"Main validator report:\n\n{main_raw}\n\n"
             f"[DOC START]\n{text}\n[DOC END]\n"
         )
         sub_raw = _complete_text(
@@ -389,20 +542,20 @@ def llm_review_mock_combined(
             user=sub_user,
             temperature=temperature,
         )
-        try:
-            sub_obj = _safe_json_loads(sub_raw)
-        except Exception:
-            sub_obj = {"disagreements": ["sub model did not return valid JSON"], "raw": sub_raw}
+        sub_obj = _parse_challenger_markdown(sub_raw, pair=False)
 
         consensus_system = (
             "You are the final consensus validator. Reconcile main + challenger outputs and produce a final decision and final revised markdown. "
-            "If something cannot be verified, choose verdict=uncertain."
+            "If something cannot be verified, choose verdict=uncertain. Return plain Markdown text only (no JSON)."
         )
         consensus_user = (
-            "Return STRICT JSON only.\n"
-            "Keys: verdict (correct|incorrect|uncertain), issues (array of strings), revised_markdown (string), summary (string).\n\n"
-            f"Main validator JSON:\n{json.dumps(main_obj, ensure_ascii=False)}\n\n"
-            f"Challenger JSON:\n{json.dumps(sub_obj, ensure_ascii=False)}\n\n"
+            "Please produce a final Markdown report with EXACT sections:\n"
+            "## Verdict\ncorrect|incorrect|uncertain\n\n"
+            "## Issues\n- bullet points\n\n"
+            "## Summary\nshort paragraph\n\n"
+            "## Revised Markdown\n```markdown\n...final corrected markdown if needed...\n```\n\n"
+            f"Main validator report:\n\n{main_raw}\n\n"
+            f"Challenger report:\n\n{sub_raw}\n\n"
             f"[DOC START]\n{text}\n[DOC END]\n"
         )
         consensus_raw = _complete_text(
@@ -413,17 +566,7 @@ def llm_review_mock_combined(
             user=consensus_user,
             temperature=temperature,
         )
-        try:
-            consensus_obj = _safe_json_loads(consensus_raw)
-        except Exception:
-            consensus_obj = dict(main_obj)
-            _existing_issues = consensus_obj.get("issues")
-            if isinstance(_existing_issues, list):
-                _issues_list = [str(x) for x in _existing_issues]
-            else:
-                _issues_list = []
-            consensus_obj["issues"] = _issues_list + ["consensus did not return valid JSON"]
-            consensus_obj["raw"] = consensus_raw
+        consensus_obj = _parse_review_markdown(consensus_raw, pair=False)
 
     revised_md = str(consensus_obj.get("revised_markdown") or "")
     revised_path: Optional[str] = None
@@ -434,6 +577,27 @@ def llm_review_mock_combined(
         out_path.write_text(revised_md, encoding="utf-8")
         revised_path = str(out_path)
 
+    final_conclusion_md: List[str] = []
+    final_conclusion_md.append("# Final Consensus Conclusion")
+    final_conclusion_md.append("")
+    final_conclusion_md.append(f"- Verdict: **{_coerce_verdict(consensus_obj.get('verdict'))}**")
+    final_conclusion_md.append(f"- Main model: `{main_model}`")
+    if sub_model:
+        final_conclusion_md.append(f"- Sub model: `{sub_model}`")
+    final_conclusion_md.append("")
+    final_conclusion_md.append("## Issues")
+    issues_out = consensus_obj.get("issues")
+    if isinstance(issues_out, list) and issues_out:
+        for x in issues_out:
+            final_conclusion_md.append(f"- {x}")
+    else:
+        final_conclusion_md.append("- (none)")
+    if str(consensus_obj.get("summary") or "").strip():
+        final_conclusion_md.append("")
+        final_conclusion_md.append("## Summary")
+        final_conclusion_md.append("")
+        final_conclusion_md.append(str(consensus_obj.get("summary") or "").strip())
+
     return {
         "type": "combined",
         "file": str(md_path),
@@ -443,8 +607,10 @@ def llm_review_mock_combined(
         "issues": consensus_obj.get("issues") or [],
         "summary": consensus_obj.get("summary") or "",
         "revision": revised_path,
-        "main": main_obj,
-        "sub": sub_obj,
+        "main": {"parsed": main_obj, "raw": main_raw},
+        "sub": {"parsed": sub_obj, "raw": sub_raw if verdict != "correct" and sub_model else ""},
+        "consensus": {"parsed": consensus_obj, "raw": consensus_raw},
+        "final_conclusion_markdown": "\n".join(final_conclusion_md).strip() + "\n",
     }
 
 

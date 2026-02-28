@@ -1379,7 +1379,7 @@ def _validate_job(job_id: str, params: Dict[str, Any]) -> Dict[str, Any]:
             out_dir.mkdir(parents=True, exist_ok=True)
             out_path = out_dir / f"validate_{job_id}_ai_log.md"
             md_out: List[str] = []
-            md_out.append("# Validate AI Review Log")
+            md_out.append("# Validate AI Review Report")
             md_out.append("")
             md_out.append(f"- job_id: {job_id}")
             md_out.append(f"- created_at: {_now_iso()}")
@@ -1389,7 +1389,7 @@ def _validate_job(job_id: str, params: Dict[str, Any]) -> Dict[str, Any]:
                 md_out.append(f"- sub_model: {sub_model}")
             md_out.append(f"- files: {len(md_files)}")
             md_out.append("")
-            md_out.append("## Log")
+            md_out.append("## Runtime Communication Log")
             md_out.append("")
             if ai_log_lines:
                 for line in ai_log_lines:
@@ -1397,6 +1397,149 @@ def _validate_job(job_id: str, params: Dict[str, Any]) -> Dict[str, Any]:
             else:
                 md_out.append("- (no log lines)")
             md_out.append("")
+
+            md_out.append("## Validation Result")
+            md_out.append("")
+            md_out.append("### Code Summary")
+            md_out.append("")
+            md_out.append(f"- python_blocks: {totals.get('python_blocks', 0)}")
+            md_out.append(f"- ok: {totals.get('ok', 0)}")
+            md_out.append(f"- failed: {totals.get('failed', 0)}")
+            md_out.append(f"- skipped: {totals.get('skipped', 0)}")
+            md_out.append("")
+
+            md_out.append("### Selected Files")
+            md_out.append("")
+            if md_files:
+                for p in md_files:
+                    md_out.append(f"- {str(p.relative_to(default_sources_dir))}")
+            else:
+                md_out.append("- (none)")
+            md_out.append("")
+
+            md_out.append("### Code Failures")
+            md_out.append("")
+            if failures:
+                for i, f in enumerate(failures, start=1):
+                    md_out.append(f"#### Failure {i}")
+                    md_out.append("")
+                    md_out.append(f"- file: {f.get('file')}")
+                    md_out.append(f"- lines: {f.get('lines')}")
+                    md_out.append(f"- returncode: {f.get('returncode')}")
+                    if f.get("note"):
+                        md_out.append(f"- note: {f.get('note')}")
+                    stderr = str(f.get("stderr") or "").strip()
+                    stdout = str(f.get("stdout") or "").strip()
+                    if stderr:
+                        md_out.append("")
+                        md_out.append("**stderr**")
+                        md_out.append("")
+                        md_out.append("```text")
+                        md_out.append(stderr)
+                        md_out.append("```")
+                    if stdout:
+                        md_out.append("")
+                        md_out.append("**stdout**")
+                        md_out.append("")
+                        md_out.append("```text")
+                        md_out.append(stdout)
+                        md_out.append("```")
+                    md_out.append("")
+            else:
+                md_out.append("- (none)")
+                md_out.append("")
+
+            md_out.append("### Mock Issues")
+            md_out.append("")
+            if mock_issues:
+                for i, mi in enumerate(mock_issues, start=1):
+                    md_out.append(f"#### Mock Issue {i}")
+                    md_out.append("")
+                    md_out.append(f"- type: {mi.get('type')}")
+                    if mi.get("base"):
+                        md_out.append(f"- base: {mi.get('base')}")
+                    if mi.get("file"):
+                        md_out.append(f"- file: {mi.get('file')}")
+                    if mi.get("paper"):
+                        md_out.append(f"- paper: {mi.get('paper')}")
+                    if mi.get("answers"):
+                        md_out.append(f"- answers: {mi.get('answers')}")
+                    issues = mi.get("issues") or []
+                    if isinstance(issues, list):
+                        for iss in issues:
+                            md_out.append(f"  - {iss}")
+                    md_out.append("")
+            else:
+                md_out.append("- (none)")
+                md_out.append("")
+
+            md_out.append("## LLM Communication & Consensus")
+            md_out.append("")
+            if isinstance(llm_review, dict) and llm_review.get("error"):
+                md_out.append(f"- error: {llm_review.get('error')}")
+                md_out.append("")
+            elif isinstance(llm_review, dict):
+                rr = llm_review.get("results") or []
+                if isinstance(rr, list) and rr:
+                    for i, item in enumerate(rr, start=1):
+                        if not isinstance(item, dict):
+                            continue
+                        md_out.append(f"### LLM Review Item {i}")
+                        md_out.append("")
+                        md_out.append(f"- type: {item.get('type')}")
+                        if item.get("file"):
+                            md_out.append(f"- file: {item.get('file')}")
+                        if item.get("base"):
+                            md_out.append(f"- base: {item.get('base')}")
+                        if item.get("paper"):
+                            md_out.append(f"- paper: {item.get('paper')}")
+                        if item.get("answers"):
+                            md_out.append(f"- answers: {item.get('answers')}")
+                        md_out.append(f"- verdict: {item.get('verdict')}")
+                        issues = item.get("issues") or []
+                        if isinstance(issues, list):
+                            md_out.append(f"- issues_count: {len(issues)}")
+                        md_out.append("")
+
+                        summary = str(item.get("summary") or "").strip()
+                        if summary:
+                            md_out.append("#### Summary")
+                            md_out.append("")
+                            md_out.append(summary)
+                            md_out.append("")
+
+                        final_md = str(item.get("final_conclusion_markdown") or "").strip()
+                        if final_md:
+                            md_out.append("#### Final Conclusion (Markdown)")
+                            md_out.append("")
+                            md_out.append(final_md)
+                            md_out.append("")
+
+                        if item.get("revision"):
+                            md_out.append(f"- revision: {item.get('revision')}")
+                        revs = item.get("revisions")
+                        if isinstance(revs, dict) and revs:
+                            md_out.append(f"- revisions: {revs}")
+                        md_out.append("")
+
+                        for role in ("main", "sub", "consensus"):
+                            block = item.get(role)
+                            if not isinstance(block, dict):
+                                continue
+                            raw = str(block.get("raw") or "").strip()
+                            if not raw:
+                                continue
+                            md_out.append(f"#### {role.capitalize()} model output")
+                            md_out.append("")
+                            md_out.append(raw)
+                            md_out.append("")
+                else:
+                    md_out.append("- (no llm review items)")
+                    md_out.append("")
+            else:
+                md_out.append("- (llm review not enabled)")
+                md_out.append("")
+
             out_path.write_text("\n".join(md_out), encoding="utf-8")
             thinking_markdown = str(out_path.relative_to(default_sources_dir))
             _log(f"Saved AI log markdown: {thinking_markdown}")
@@ -1411,6 +1554,7 @@ def _validate_job(job_id: str, params: Dict[str, Any]) -> Dict[str, Any]:
         "mock_issues": mock_issues,
         "llm_review": llm_review,
         "thinking_markdown": thinking_markdown,
+        "report_markdown": thinking_markdown,
     }
 
 
