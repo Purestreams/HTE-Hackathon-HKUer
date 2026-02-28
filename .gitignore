@@ -79,3 +79,4 @@ dmypy.json
 .env.*
 !.env.example
 .env
+.env
