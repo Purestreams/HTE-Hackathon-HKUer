@@ -1,12 +1,16 @@
+[hero](hero.png)
+
 # Lighthouse: EduAI
 
-A session-scoped document workflow platform for automated PDF ingestion, mock paper generation, and two-model consensus validation. Features a RAG streaming chat and PDF export.
+An AI-enpowered educational platform that amplifies actual innovation in the latest papers, saving time & accelerate learning with realtime multi-agent consensus validation. No matter you're newly onboard or reknowned sailors, Lighthouse guides YOUR way through the most turbulent, ever-changing water.
+
+Lighthouse assists real-world learning in an automated workflow, ingests PDF papers in managable sessions of summarization, chanllenges you with configurable quizes, which then goes through multi-agent validation. The revision delivers interactive results with retrieval-augmented generation support.
 
 - Hosted demo: https://win7.win/HTE-Hackathon-HKUer/demo/index.html (static page)
 
 ## Detailed Summary
 
-Lighthouse is designed to streamline the academic lifecycle of study materials—from raw PDF lecture notes to validated mock examinations. Unlike broad AI tools, ighthouse provides a **session-centric workspace** where all documents, snapshots, and AI interactions are pinned to a specific context.
+Lighthouse is designed to streamline the academic lifecycle of study materials—from raw PDF papers to validated mock examinations. Unlike broad AI tools, ighthouse provides a **session-centric workspace** where all documents, snapshots, and AI interactions are pinned to a specific context.
 
 ### Core Workflow
 1.  **Ingest**: High-fidelity conversion of PDFs to Markdown. It intelligently chooses between fast text extraction and vision-based conversion (using Ark/Doubao models) to handle complex layouts and diagrams.
