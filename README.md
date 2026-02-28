@@ -2,6 +2,8 @@
 
 A session-scoped document workflow platform for automated PDF ingestion, mock paper generation, and two-model consensus validation. Features a RAG streaming chat and PDF export.
 
+- Hosted demo: https://win7.win/HTE-Hackathon-HKUer/demo/index.html (static page)
+
 ## Detailed Summary
 
 Lighthouse is designed to streamline the academic lifecycle of study materials—from raw PDF lecture notes to validated mock examinations. Unlike broad AI tools, ighthouse provides a **session-centric workspace** where all documents, snapshots, and AI interactions are pinned to a specific context.
