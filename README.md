@@ -4,7 +4,7 @@ A session-scoped document workflow platform for automated PDF ingestion, mock pa
 
 ## Detailed Summary
 
-Lighthouse is designed to streamline the academic lifecycle of study materials—from raw PDF lecture notes to validated mock examinations. Unlike broad AI tools, ighthouse provides a **session-centric workspace** where all documents, snapshots, and AI interactions are pinned to a specific context (e.g., "COMP3211 Course" or "Midterm Prep").
+Lighthouse is designed to streamline the academic lifecycle of study materials—from raw PDF lecture notes to validated mock examinations. Unlike broad AI tools, ighthouse provides a **session-centric workspace** where all documents, snapshots, and AI interactions are pinned to a specific context.
 
 ### Core Workflow
 1.  **Ingest**: High-fidelity conversion of PDFs to Markdown. It intelligently chooses between fast text extraction and vision-based conversion (using Ark/Doubao models) to handle complex layouts and diagrams.
