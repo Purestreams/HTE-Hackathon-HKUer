@@ -1,8 +1,8 @@
 # HTE Hackathon 
 
-## Python
+## Notion Board
 
-Use python3.12
+https://www.notion.so/HTE-Topics-31512e50c12980678949f994815c84be?source=copy_link
 
 ### Environment Setup
 
