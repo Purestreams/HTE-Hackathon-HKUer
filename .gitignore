@@ -10,8 +10,6 @@ data/
 # C extensions
 *.so
 
-.env
-
 # Distribution / packaging
 .Python
 build/
@@ -78,5 +76,5 @@ dmypy.json
 .env
 .env.*
 !.env.example
-.env
-.env
+!frontui/.env.example
+
