@@ -4,7 +4,7 @@ import { JobStatusCard } from '../components/JobStatusCard'
 import { saveJob } from '../lib/jobHistory'
 
 export function IngestPdfPage() {
-  const [file, setFile] = useState<File | null>(null)
+  const [files, setFiles] = useState<File[]>([])
   const [category, setCategory] = useState('assignment')
   const [mode, setMode] = useState<'auto' | 'text' | 'vision'>('auto')
   const [maxPages, setMaxPages] = useState<string>('')
@@ -15,7 +15,8 @@ export function IngestPdfPage() {
   const [allowImageHeavy, setAllowImageHeavy] = useState<boolean>(false)
   const [outName, setOutName] = useState<string>('')
 
-  const [jobId, setJobId] = useState<string | null>(null)
+  const [jobIds, setJobIds] = useState<string[]>([])
+  const [submitNote, setSubmitNote] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
 
@@ -38,36 +39,51 @@ export function IngestPdfPage() {
     e.preventDefault()
     setBusy(true)
     setError(null)
-    setJobId(null)
+    setJobIds([])
+    setSubmitNote(null)
 
     try {
-      if (!file) {
-        setError('Pick a PDF file first')
+      if (!files.length) {
+        setError('Pick at least one PDF file first')
         return
       }
 
-      const fd = new FormData()
-      fd.append('file', file)
-      fd.append('category', category)
-      fd.append('ingest', '1')
-      fd.append('mode', mode)
-      fd.append('diag_pages', String(diagPages))
-      fd.append('dpi', String(dpi))
-      if (maxPages.trim()) fd.append('max_pages', String(Number(maxPages)))
-      if (model.trim()) fd.append('model', model.trim())
-      if (outName.trim()) fd.append('out_name', outName.trim())
-      if (allowImageHeavy) fd.append('allow_image_heavy', '1')
-
-      const res = await apiFetch<UploadResponse>('/api/upload', {
-        method: 'POST',
-        body: fd as any,
-      })
-      if (res.job_id) {
-        setJobId(res.job_id)
-        saveJob({ id: res.job_id, type: 'pdf_ingest', createdAt: new Date().toISOString() })
-      } else {
-        setError('Upload succeeded but no ingest job was created (non-PDF?)')
+      if (files.length > 1 && outName.trim()) {
+        setSubmitNote('Note: out_name is ignored when ingesting multiple PDFs (each PDF will be saved as <pdf_stem>.md).')
       }
+
+      const created: string[] = []
+      for (let i = 0; i < files.length; i++) {
+        const f = files[i]!
+        setSubmitNote(`Uploading ${i + 1}/${files.length}: ${f.name}`)
+
+        const fd = new FormData()
+        fd.append('file', f)
+        fd.append('category', category)
+        fd.append('ingest', '1')
+        fd.append('mode', mode)
+        fd.append('diag_pages', String(diagPages))
+        fd.append('dpi', String(dpi))
+        if (maxPages.trim()) fd.append('max_pages', String(Number(maxPages)))
+        if (model.trim()) fd.append('model', model.trim())
+        if (files.length === 1 && outName.trim()) fd.append('out_name', outName.trim())
+        if (allowImageHeavy) fd.append('allow_image_heavy', '1')
+
+        const res = await apiFetch<UploadResponse>('/api/upload', {
+          method: 'POST',
+          body: fd as any,
+        })
+
+        if (res.job_id) {
+          created.push(res.job_id)
+          saveJob({ id: res.job_id, type: 'pdf_ingest', createdAt: new Date().toISOString() })
+        } else {
+          throw new Error(`Upload succeeded but no ingest job was created for ${f.name}`)
+        }
+      }
+
+      setJobIds(created)
+      setSubmitNote(`Created ${created.length} ingest job(s).`)
     } catch (e: any) {
       setError(String(e?.message ?? e))
     } finally {
@@ -90,9 +106,23 @@ export function IngestPdfPage() {
                 className="w-full rounded-md border bg-white px-3 py-2 text-sm"
                 type="file"
                 accept=".pdf"
-                onChange={(e) => setFile(e.target.files?.[0] ?? null)}
+                multiple
+                onChange={(e) => setFiles(Array.from(e.target.files || []))}
               />
             </Field>
+            <div className="text-xs text-gray-500 sm:col-span-2">
+              Selected: {files.length} file(s)
+              {files.length > 0 ? (
+                <ul className="mt-1 list-disc pl-4">
+                  {files.slice(0, 6).map((f) => (
+                    <li key={f.name} className="break-all">
+                      {f.name}
+                    </li>
+                  ))}
+                  {files.length > 6 ? <li>…and {files.length - 6} more</li> : null}
+                </ul>
+              ) : null}
+            </div>
             <Field label="category">
               <select className="w-full rounded-md border px-3 py-2 text-sm" value={category} onChange={(e) => setCategory(e.target.value)}>
                 <option value="lectureNote">lectureNote</option>
@@ -132,7 +162,13 @@ export function IngestPdfPage() {
               )}
             </Field>
             <Field label="out_name (optional)">
-              <input className="w-full rounded-md border px-3 py-2 text-sm" value={outName} onChange={(e) => setOutName(e.target.value)} placeholder="e.g. Assignment1_ingested.md" />
+              <input
+                className="w-full rounded-md border px-3 py-2 text-sm disabled:bg-gray-100"
+                value={outName}
+                onChange={(e) => setOutName(e.target.value)}
+                placeholder={files.length > 1 ? 'Disabled for multi-file ingest' : 'e.g. Assignment1_ingested.md'}
+                disabled={files.length > 1}
+              />
             </Field>
           </div>
 
@@ -147,15 +183,30 @@ export function IngestPdfPage() {
               type="submit"
               disabled={busy}
             >
-              {busy ? 'Submitting…' : 'Create job'}
+              {busy ? 'Submitting…' : files.length > 1 ? 'Create jobs' : 'Create job'}
             </button>
             {error && <div className="text-sm text-red-700">{error}</div>}
           </div>
 
-          {jobId && <div className="mt-3 text-sm text-gray-700">Created job: <span className="font-mono">{jobId}</span></div>}
+          {submitNote && <div className="mt-3 text-xs text-gray-600">{submitNote}</div>}
+          {jobIds.length > 0 && (
+            <div className="mt-3 text-sm text-gray-700">
+              Created {jobIds.length} job(s)
+            </div>
+          )}
         </form>
 
-        <div>{jobId ? <JobStatusCard jobId={jobId} onMissing={() => setJobId(null)} /> : <EmptyRightPanel />}</div>
+        <div>
+          {jobIds.length ? (
+            <div className="space-y-3">
+              {jobIds.map((id) => (
+                <JobStatusCard key={id} jobId={id} onMissing={() => setJobIds((prev) => prev.filter((x) => x !== id))} />
+              ))}
+            </div>
+          ) : (
+            <EmptyRightPanel />
+          )}
+        </div>
       </div>
     </div>
   )

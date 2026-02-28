@@ -9,3 +9,36 @@ body,
 body {
   margin: 0;
 }
+
+@layer components {
+  .chat-markdown {
+    @apply leading-relaxed;
+  }
+  .chat-markdown p {
+    @apply my-2;
+  }
+  .chat-markdown h1,
+  .chat-markdown h2,
+  .chat-markdown h3 {
+    @apply mt-3 mb-2 font-semibold text-gray-900;
+  }
+  .chat-markdown ul {
+    @apply my-2 list-disc pl-5;
+  }
+  .chat-markdown ol {
+    @apply my-2 list-decimal pl-5;
+  }
+  .chat-markdown li {
+    @apply my-1;
+  }
+  .chat-markdown blockquote {
+    @apply my-2 border-l-4 border-gray-300 pl-3 text-gray-700;
+  }
+  .chat-markdown table {
+    @apply my-2 w-full border-collapse;
+  }
+  .chat-markdown th,
+  .chat-markdown td {
+    @apply border border-gray-200 px-2 py-1 align-top;
+  }
+}

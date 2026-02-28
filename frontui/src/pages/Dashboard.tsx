@@ -13,7 +13,7 @@ export function Dashboard() {
       </div>
 
       <div className="grid gap-4 md:grid-cols-2">
-        <QuickCard title="Upload" desc="Upload a PDF/MD/TXT into sources/<category>/" to="/upload" />
+        <QuickCard title="Upload" desc="Upload a pdf/md/txt into category" to="/upload" />
         <QuickCard title="PDF Ingest" desc="Auto-route: embedded text vs vision conversion" to="/ingest/pdf" />
         <QuickCard title="Mockpaper" desc="Generate mock exam with inline answers" to="/mockpaper" />
         <QuickCard title="Validate" desc="Run code sandbox + mock checks" to="/validate" />

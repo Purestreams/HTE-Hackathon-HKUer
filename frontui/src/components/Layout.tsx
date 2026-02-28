@@ -10,6 +10,7 @@ const navItems = [
   { to: '/mockpaper', label: 'Mockpaper' },
   { to: '/validate', label: 'Validate' },
   { to: '/library', label: 'Library' },
+  { to: '/chat', label: 'Chat' },
   { to: '/snapshots', label: 'Snapshots' },
   { to: '/jobs', label: 'Jobs' },
 ]
@@ -63,7 +64,7 @@ export function Layout() {
           <div className="text-sm text-gray-600">
             {health ? (
               <span>
-                Backend healthy • <span className="font-mono">{health.time}</span>
+                Backend healthy
               </span>
             ) : healthErr ? (
               <span className="text-red-700">Backend unreachable: {healthErr}</span>

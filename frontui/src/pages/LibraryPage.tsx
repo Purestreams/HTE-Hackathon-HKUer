@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Link } from 'react-router-dom'
-import { apiFetch, apiBaseUrl, type FileEntry, type FilesListResponse } from '../lib/api'
+import { Link, useNavigate } from 'react-router-dom'
+import { apiFetch, apiBaseUrl, type FileEntry, type FilesListResponse, type MdToPdfResponse } from '../lib/api'
 import { useActiveSessionId } from '../hooks/useActiveSessionId'
 
 export function LibraryPage() {
@@ -8,9 +8,11 @@ export function LibraryPage() {
   const [entries, setEntries] = useState<FileEntry[]>([])
   const [busy, setBusy] = useState(false)
   const [deletingPath, setDeletingPath] = useState<string | null>(null)
+  const [generating, setGenerating] = useState<Record<string, number>>({})
   const [error, setError] = useState<string | null>(null)
 
   const sessionId = useActiveSessionId()
+  const navigate = useNavigate()
 
   const crumbs = useMemo(() => {
     const parts = (dir || '').split('/').filter(Boolean)
@@ -78,6 +80,50 @@ export function LibraryPage() {
     return { label: 'Download', href: raw }
   }
 
+  async function handleViewPdfFromMarkdown(e: FileEntry) {
+    if (e.type !== 'file') return
+    const ext = (e.ext || '').toLowerCase()
+    if (ext !== 'md' && ext !== 'markdown') return
+
+    setError(null)
+
+    // Indeterminate-ish progress: climb to 92% while waiting.
+    let t: any = null
+    setGenerating((prev) => ({ ...prev, [e.path]: 10 }))
+    t = window.setInterval(() => {
+      setGenerating((prev) => {
+        const cur = prev[e.path] ?? 10
+        const next = Math.min(92, cur + 8)
+        return { ...prev, [e.path]: next }
+      })
+    }, 180)
+
+    try {
+      const res = await apiFetch<MdToPdfResponse>('/api/convert/md_to_pdf', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ path: e.path }),
+      })
+      setGenerating((prev) => ({ ...prev, [e.path]: 100 }))
+      window.setTimeout(() => {
+        setGenerating((prev) => {
+          const { [e.path]: _, ...rest } = prev
+          return rest
+        })
+      }, 450)
+
+      navigate(`/view/pdf?path=${encodeURIComponent(res.pdf_path)}`)
+    } catch (err: any) {
+      setError(String(err?.message ?? err))
+      setGenerating((prev) => {
+        const { [e.path]: _, ...rest } = prev
+        return rest
+      })
+    } finally {
+      if (t) window.clearInterval(t)
+    }
+  }
+
   return (
     <div className="max-w-6xl space-y-6">
       <div className="flex items-start justify-between gap-4">
@@ -122,6 +168,8 @@ export function LibraryPage() {
             <tbody>
               {entries.map((e) => {
                 const action = fileLink(e)
+                const ext = (e.ext || '').toLowerCase()
+                const genPct = generating[e.path]
                 return (
                   <tr key={e.path} className="border-t">
                     <td className="px-4 py-3">
@@ -148,6 +196,18 @@ export function LibraryPage() {
                               {action.label}
                             </a>
                           )}
+
+                          {ext === 'md' || ext === 'markdown' ? (
+                            <button
+                              className="text-blue-700 hover:underline disabled:opacity-60"
+                              type="button"
+                              onClick={() => handleViewPdfFromMarkdown(e)}
+                              disabled={genPct != null}
+                            >
+                              {genPct != null ? 'Generating…' : 'View PDF'}
+                            </button>
+                          ) : null}
+
                           <button
                             className="text-red-700 hover:underline disabled:opacity-60"
                             type="button"
@@ -158,6 +218,15 @@ export function LibraryPage() {
                           </button>
                         </div>
                       )}
+
+                      {genPct != null ? (
+                        <div className="mt-2 h-1.5 w-40 overflow-hidden rounded bg-gray-200">
+                          <div
+                            className="h-full bg-blue-600 transition-all"
+                            style={{ width: `${Math.max(6, Math.min(100, genPct))}%` }}
+                          />
+                        </div>
+                      ) : null}
                     </td>
                   </tr>
                 )

@@ -12,7 +12,9 @@ from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from dotenv import load_dotenv
-from flask import Flask, jsonify, request, send_file
+from flask import Flask, Response, jsonify, request, send_file, stream_with_context
+import anthropic
+from volcenginesdkarkruntime import Ark
 from flask_cors import CORS
 from werkzeug.utils import secure_filename
 
@@ -54,6 +56,7 @@ ARK_LIST_OF_IMAGE_MODELS = [
 
 # MiniMax text model
 MINIMAX_TEXT_MODELS = ["MiniMax-M2.5"]
+EMBED_MODELS = ["text-embedding-3-small"]
 
 
 def _safe_session_id(value: str) -> str:
@@ -360,6 +363,7 @@ def _get_available_models() -> Dict[str, List[str] | str]:
         "thinking_models": thinking_models,
         "image_models": image_models,
         "text_models": text_models,
+        "embed_models": EMBED_MODELS,
         "main_model": main_model,
     }
 
@@ -787,6 +791,64 @@ async def get_file_raw():
     )
 
 
+@app.post("/api/convert/md_to_pdf")
+async def convert_md_to_pdf():
+    """Convert a Markdown file under session sources into a PDF via pandoc.
+
+    JSON body:
+      - path: relative path under sources to a .md/.markdown file
+      - margin: optional margin string (default: 1in)
+
+    Returns:
+      - pdf_path: relative path under sources to the generated PDF
+    """
+
+    data = request.get_json(silent=True) or {}
+    path_str = str(data.get("path") or "").strip()
+    margin = str(data.get("margin") or "1in").strip() or "1in"
+
+    if not path_str:
+        return _json_error("Missing path", status=400)
+
+    try:
+        _, sources_dir, abs_md = _resolve_file_under_sources(path_str)
+    except Exception as e:
+        return _json_error(str(e), status=400)
+
+    if not abs_md.exists() or not abs_md.is_file():
+        return _json_error("file not found", status=404)
+
+    if abs_md.suffix.lower() not in {".md", ".markdown"}:
+        return _json_error("path must be a .md/.markdown file", status=400)
+
+    abs_pdf = abs_md.with_suffix(".pdf")
+    try:
+        abs_pdf = _ensure_under_dir(abs_pdf.resolve(), sources_dir)
+    except Exception:
+        return _json_error("output path not allowed", status=400)
+
+    try:
+        from app.markdownToPdf import markdown_to_pdf
+
+        r = markdown_to_pdf(abs_md, abs_pdf, margin=margin)
+        rel_pdf = str(r.pdf_path.relative_to(sources_dir))
+        rel_md = str(abs_md.relative_to(sources_dir))
+        return jsonify(
+            {
+                "ok": True,
+                "md_path": rel_md,
+                "pdf_path": rel_pdf,
+                "cached": bool(r.cached),
+                "elapsed_ms": int(r.elapsed_sec * 1000.0),
+            }
+        )
+    except FileNotFoundError:
+        return _json_error("file not found", status=404)
+    except Exception as e:
+        # pandoc missing / latex missing / etc.
+        return _json_error(str(e), status=500)
+
+
 @app.delete("/api/files")
 async def delete_file():
     """Delete a file under session sources.
@@ -1104,6 +1166,8 @@ def _validate_job(job_id: str, params: Dict[str, Any]) -> Dict[str, Any]:
     from app.validate import (
         discover_mock_combined_files,
         discover_mock_pairs,
+        llm_review_mock_combined,
+        llm_review_mock_pair,
         iter_markdown_files,
         validate_markdown_file,
         validate_mock_combined,
@@ -1114,6 +1178,16 @@ def _validate_job(job_id: str, params: Dict[str, Any]) -> Dict[str, Any]:
 
     start = _time.monotonic()
     last_update_t = start
+
+    ai_log_lines: List[str] = []
+
+    def _log(msg: str) -> None:
+        # Keep this log user-facing; do NOT include chain-of-thought.
+        line = f"[{_now_iso()}] {str(msg or '').strip()}".strip()
+        if not line:
+            return
+        ai_log_lines.append(line)
+        jobs.update(job_id, log=line)
 
     def _progress(stage: str, *, message: str = "") -> None:
         nonlocal last_update_t
@@ -1135,18 +1209,45 @@ def _validate_job(job_id: str, params: Dict[str, Any]) -> Dict[str, Any]:
     sources_dir_raw = str(params.get("sources_dir") or ".")
     sources_dir = _resolve_path_in_session_sources(sources_dir_raw, default_sources_dir)
 
+    selected_files_raw = params.get("files")
+    selected_abs: List[Path] = []
+    if isinstance(selected_files_raw, list):
+        for v in selected_files_raw:
+            try:
+                rel = str(v or "").strip()
+                if not rel:
+                    continue
+                abs_path = _resolve_path_in_session_sources(rel, default_sources_dir)
+                if abs_path.exists() and abs_path.is_file() and abs_path.suffix.lower() == ".md":
+                    selected_abs.append(abs_path)
+            except Exception:
+                continue
+    selected_abs_set = set(selected_abs)
+
     run_code = bool(params.get("run_code", True))
     run_mock = bool(params.get("mock", True))
+    ai_review = bool(params.get("ai_review", False))
+    main_model = str(params.get("main_model") or params.get("model") or "").strip() or None
+    sub_model = str(params.get("sub_model") or "").strip() or None
+
+    if ai_review:
+        _log("AI review enabled")
+        if main_model:
+            _log(f"Main model: {main_model}")
+        if sub_model:
+            _log(f"Sub model: {sub_model}")
 
     _progress("scan", message="discover markdown files")
-    md_files = iter_markdown_files(sources_dir)
+    md_files = selected_abs if selected_abs else iter_markdown_files(sources_dir)
+    if ai_review:
+        _log(f"Selected markdown files: {len(md_files)}")
     failures: List[Dict[str, Any]] = []
     totals = {"python_blocks": 0, "ok": 0, "failed": 0, "skipped": 0}
 
     for idx, md in enumerate(md_files, start=1):
         _progress("scan", message=f"validating markdown ({idx})")
-        results = validate_markdown_file(md, run_code=run_code)
-        for r in results:
+        results_any: Any = validate_markdown_file(md, run_code=run_code)
+        for r in (results_any or []):
             if r.block.language in {"py", "python"}:
                 totals["python_blocks"] += 1
                 if r.status == "ok":
@@ -1169,7 +1270,11 @@ def _validate_job(job_id: str, params: Dict[str, Any]) -> Dict[str, Any]:
     mock_issues: List[Dict[str, Any]] = []
     if run_mock:
         _progress("mock_checks", message="validating mockpaper pairs")
+        if ai_review:
+            _log("Running mockpaper sanity checks (pair mode)")
         for base, paper_path, answers_path in discover_mock_pairs(sources_dir):
+            if selected_abs_set and (paper_path not in selected_abs_set or answers_path not in selected_abs_set):
+                continue
             check = validate_mock_pair(base, paper_path, answers_path)
             if check.status != "ok":
                 mock_issues.append(
@@ -1183,7 +1288,11 @@ def _validate_job(job_id: str, params: Dict[str, Any]) -> Dict[str, Any]:
                 )
 
         _progress("mock_checks", message="validating combined mockpapers")
+        if ai_review:
+            _log("Running mockpaper sanity checks (combined mode)")
         for p in discover_mock_combined_files(sources_dir):
+            if selected_abs_set and p not in selected_abs_set:
+                continue
             status, issues = validate_mock_combined(p)
             if status != "ok":
                 mock_issues.append(
@@ -1194,11 +1303,114 @@ def _validate_job(job_id: str, params: Dict[str, Any]) -> Dict[str, Any]:
                     }
                 )
 
+    llm_review: Optional[Dict[str, Any]] = None
+    if run_mock and ai_review:
+        if not main_model:
+            llm_review = {"error": "Missing main_model"}
+            _log("ERROR: Missing main_model for AI review")
+        else:
+            results: List[Dict[str, Any]] = []
+            try:
+                _progress("llm_review", message="LLM review mockpaper pairs")
+                pair_count = 0
+                for base, paper_path, answers_path in discover_mock_pairs(sources_dir):
+                    if selected_abs_set and (paper_path not in selected_abs_set or answers_path not in selected_abs_set):
+                        continue
+                    pair_count += 1
+                    _progress("llm_review", message=f"LLM reviewing pair ({pair_count})")
+                    _log(f"Reviewing pair: {base}")
+                    results.append(
+                        llm_review_mock_pair(
+                            base=base,
+                            paper_path=paper_path,
+                            answers_path=answers_path,
+                            main_model=main_model,
+                            sub_model=sub_model or "",
+                        )
+                    )
+                    try:
+                        last = results[-1]
+                        _log(
+                            f"Consensus verdict: {last.get('verdict')} | issues: {len(last.get('issues') or [])}"
+                        )
+                        rev = last.get("revisions") or {}
+                        if isinstance(rev, dict) and (rev.get("paper") or rev.get("answers")):
+                            _log(f"Revisions written: {rev}")
+                    except Exception:
+                        pass
+
+                if not results:
+                    _progress("llm_review", message="LLM review combined mockpapers")
+                    for idx, p in enumerate(discover_mock_combined_files(sources_dir), start=1):
+                        if selected_abs_set and p not in selected_abs_set:
+                            continue
+                        _progress("llm_review", message=f"LLM reviewing combined ({idx})")
+                        _log(f"Reviewing combined: {str(p.relative_to(default_sources_dir))}")
+                        results.append(
+                            llm_review_mock_combined(
+                                md_path=p,
+                                main_model=main_model,
+                                sub_model=sub_model or "",
+                            )
+                        )
+                        try:
+                            last = results[-1]
+                            _log(
+                                f"Consensus verdict: {last.get('verdict')} | issues: {len(last.get('issues') or [])}"
+                            )
+                            if last.get("revision"):
+                                _log(f"Revision written: {last.get('revision')}")
+                        except Exception:
+                            pass
+            except Exception as e:
+                llm_review = {"error": str(e)}
+                _log(f"ERROR: AI review failed: {e}")
+            else:
+                llm_review = {
+                    "main_model": main_model,
+                    "sub_model": sub_model,
+                    "results": results,
+                }
+
+    thinking_markdown: Optional[str] = None
+    if ai_review:
+        try:
+            out_dir = default_sources_dir / "validate_logs"
+            out_dir.mkdir(parents=True, exist_ok=True)
+            out_path = out_dir / f"validate_{job_id}_ai_log.md"
+            md_out: List[str] = []
+            md_out.append("# Validate AI Review Log")
+            md_out.append("")
+            md_out.append(f"- job_id: {job_id}")
+            md_out.append(f"- created_at: {_now_iso()}")
+            if main_model:
+                md_out.append(f"- main_model: {main_model}")
+            if sub_model:
+                md_out.append(f"- sub_model: {sub_model}")
+            md_out.append(f"- files: {len(md_files)}")
+            md_out.append("")
+            md_out.append("## Log")
+            md_out.append("")
+            if ai_log_lines:
+                for line in ai_log_lines:
+                    md_out.append(f"- {line}")
+            else:
+                md_out.append("- (no log lines)")
+            md_out.append("")
+            out_path.write_text("\n".join(md_out), encoding="utf-8")
+            thinking_markdown = str(out_path.relative_to(default_sources_dir))
+            _log(f"Saved AI log markdown: {thinking_markdown}")
+        except Exception as e:
+            _log(f"ERROR: Failed to save AI log markdown: {e}")
+
     return {
         "markdown_files": len(md_files),
+        "selected_files": [str(p.relative_to(default_sources_dir)) for p in md_files],
         "code_summary": totals,
         "code_failures": failures,
         "mock_issues": mock_issues,
+        "llm_review": llm_review,
+        "thinking_markdown": thinking_markdown,
     }
 
 
@@ -1237,6 +1449,241 @@ async def job_status(job_id: str):
             },
         }
     )
+
+
+@app.get("/api/jobs/<job_id>/stream")
+async def job_stream(job_id: str):
+    job = jobs.get(job_id)
+    if not job:
+        return _json_error("Job not found", status=404)
+
+    def _pack(obj: Dict[str, Any]) -> str:
+        return f"data: {json.dumps(obj, ensure_ascii=False)}\n\n"
+
+    def gen():
+        idx = 0
+        last_progress: Optional[Dict[str, Any]] = None
+        yield _pack({"type": "meta", "job_id": job_id, "job_type": job.type})
+
+        while True:
+            j = jobs.get(job_id)
+            if not j:
+                yield _pack({"type": "error", "error": "Job not found"})
+                yield _pack({"type": "done", "status": "missing"})
+                break
+
+            # Stream new log lines
+            logs_now = list(j.logs or [])
+            while idx < len(logs_now):
+                yield _pack({"type": "log", "index": idx, "message": logs_now[idx]})
+                idx += 1
+
+            # Stream progress updates (best-effort)
+            prog_now = dict(j.progress or {})
+            if prog_now and prog_now != (last_progress or {}):
+                last_progress = prog_now
+                yield _pack({"type": "progress", "progress": prog_now, "status": j.status})
+
+            if j.status in {"done", "error"}:
+                payload: Dict[str, Any] = {"type": "done", "status": j.status}
+                if j.status == "done" and j.result is not None:
+                    payload["result"] = j.result
+                if j.status == "error" and j.error:
+                    payload["error"] = j.error
+                yield _pack(payload)
+                break
+
+            time.sleep(0.6)
+
+    headers = {
+        "Cache-Control": "no-cache",
+        "X-Accel-Buffering": "no",
+    }
+    return Response(stream_with_context(gen()), mimetype="text/event-stream", headers=headers)
+
+
+@app.post("/api/chat/query")
+async def chat_query():
+    data = request.get_json(silent=True) or {}
+    query = str(data.get("query") or "").strip()
+    files = data.get("files") or []
+    model = str(data.get("model") or "").strip()
+    embed_model = str(data.get("embed_model") or "").strip() or None
+    top_k = int(data.get("top_k") or 4)
+    stream = bool(data.get("stream") or False)
+    if not stream:
+        accept = str(request.headers.get("Accept") or "")
+        if "text/event-stream" in accept:
+            stream = True
+
+    if not query:
+        return _json_error("Missing query", status=400)
+    if not isinstance(files, list) or not files:
+        return _json_error("Missing files", status=400)
+
+    session_id = str(data.get("session_id") or "") or _request_session_id()
+    _, sources_dir, _ = _resolve_session_dirs(session_id)
+
+    abs_files: List[Path] = []
+    for p in files:
+        abs_path = _resolve_path_in_session_sources(str(p), sources_dir)
+        if not abs_path.exists() or not abs_path.is_file():
+            return _json_error(f"file not found: {p}", status=404)
+        abs_files.append(abs_path)
+
+    # Fake RAG: load all selected files and stuff full context into the prompt.
+    max_bytes = int(os.environ.get("MAX_TEXT_FILE_BYTES", str(2 * 1024 * 1024)))
+    max_context_chars = int(os.environ.get("CHAT_CONTEXT_MAX_CHARS", str(60_000)))
+    context_parts: List[str] = []
+    sources: List[Dict[str, Any]] = []
+    used_chars = 0
+
+    for abs_path in abs_files:
+        try:
+            if abs_path.stat().st_size > max_bytes:
+                continue
+            text = abs_path.read_text(encoding="utf-8")
+        except UnicodeDecodeError:
+            continue
+        except Exception:
+            continue
+
+        rel_path = str(abs_path.relative_to(sources_dir))
+        if not text:
+            continue
+
+        remaining = max_context_chars - used_chars
+        if remaining <= 0:
+            break
+        if len(text) > remaining:
+            text = text[:remaining]
+
+        context_parts.append(f"### {rel_path}\n{text}\n")
+        sources.append({"path": rel_path, "score": None, "snippet": text[:500]})
+        used_chars += len(text)
+
+    if not context_parts:
+        return _json_error("No readable text files in selection", status=400)
+
+    # No external LLM call: return a simple heuristic response using the stuffed context.
+    model = str(model or "").strip()
+    if not model:
+        model = _get_available_models()["main_model"]
+
+    # Choose provider based on model selection.
+    provider = "minimax" if model in MINIMAX_TEXT_MODELS else "ark"
+
+    ark_client: Any = None
+    mm_client: Any = None
+
+    if provider == "ark":
+        api_key = str(os.environ.get("ARK_API_KEY") or "").strip()
+        if not api_key:
+            return _json_error("Missing ARK_API_KEY", status=500)
+        ark_client = Ark(api_key=api_key)
+    else:
+        api_key = str(os.environ.get("MINIMAX_API_KEY") or os.environ.get("ANTHROPIC_API_KEY") or "").strip()
+        if not api_key:
+            return _json_error("Missing MINIMAX_API_KEY (or ANTHROPIC_API_KEY)", status=500)
+        base_url = str(os.environ.get("ANTHROPIC_BASE_URL") or "https://api.minimax.io/anthropic").strip()
+        mm_client = anthropic.Anthropic(api_key=api_key, base_url=base_url)
+
+    system_prompt = (
+        "You are a helpful assistant. Use the provided context to answer the question. "
+        "If the answer is not in the context, say you don't know."
+        "The output should be in markdown with Github-Flavored Markdown syntax. Use $,$$ for math blocks."
+    )
+    user_prompt = "Context:\n" + "\n".join(context_parts) + f"\nQuestion: {query}\n"
+
+    def _sse_pack(obj: Dict[str, Any]) -> str:
+        return f"data: {json.dumps(obj, ensure_ascii=False)}\n\n"
+
+    if stream:
+        from app.streaming import estimate_tokens, stream_text_from_ark_response
+
+        def gen():
+            yield _sse_pack({"type": "meta", "model": model, "sources": sources, "files": files})
+
+            try:
+                if provider == "ark":
+                    s = ark_client.chat.completions.create(
+                        model=model,
+                        messages=[
+                            {"role": "system", "content": system_prompt},
+                            {"role": "user", "content": user_prompt},
+                        ],
+                        stream=True,
+                    )
+                    for chunk in s:
+                        delta = stream_text_from_ark_response([chunk])
+                        if not delta:
+                            continue
+                        yield _sse_pack({"type": "delta", "delta": delta})
+                else:
+                    # MiniMax (Anthropic-compatible). Prefer real streaming if available.
+                    if hasattr(mm_client.messages, "stream"):
+                        with mm_client.messages.stream(
+                            model=model,
+                            max_tokens=2048,
+                            system=system_prompt,
+                            messages=[{"role": "user", "content": user_prompt}],
+                        ) as s:
+                            for text in getattr(s, "text_stream", []) or []:
+                                if not text:
+                                    continue
+                                yield _sse_pack({"type": "delta", "delta": str(text)})
+                    else:
+                        msg = mm_client.messages.create(
+                            model=model,
+                            max_tokens=2048,
+                            system=system_prompt,
+                            messages=[{"role": "user", "content": user_prompt}],
+                        )
+                        parts: List[str] = []
+                        for block in (msg.content or []):
+                            if getattr(block, "type", None) == "text":
+                                parts.append(getattr(block, "text", "") or "")
+                        content = "".join(parts)
+                        # Fallback pseudo-stream in chunks.
+                        step = 80
+                        for i in range(0, len(content), step):
+                            yield _sse_pack({"type": "delta", "delta": content[i : i + step]})
+
+                yield _sse_pack({"type": "done"})
+            except Exception as e:
+                yield _sse_pack({"type": "error", "error": str(e)})
+                yield _sse_pack({"type": "done"})
+
+        headers = {
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+        }
+        return Response(stream_with_context(gen()), mimetype="text/event-stream", headers=headers)
+
+    answer = ""
+    if provider == "ark":
+        resp = ark_client.chat.completions.create(
+            model=model,
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ],
+        )
+        answer = resp.choices[0].message.content or ""  # type: ignore[attr-defined]
+    else:
+        msg = mm_client.messages.create(
+            model=model,
+            max_tokens=2048,
+            system=system_prompt,
+            messages=[{"role": "user", "content": user_prompt}],
+        )
+        parts: List[str] = []
+        for block in (msg.content or []):
+            if getattr(block, "type", None) == "text":
+                parts.append(getattr(block, "text", "") or "")
+        answer = "".join(parts)
+
+    return jsonify({"ok": True, "answer": answer, "sources": sources, "files": files})
 
 
 def _snapshot_manifest(sources_dir: Path) -> Dict[str, Any]:
