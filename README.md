@@ -12,6 +12,12 @@ Lighthouse assists real-world learning in an automated workflow, ingests PDF pap
 
 Lighthouse is designed to streamline the academic lifecycle of study materialsâ€”from raw PDF papers to validated mock examinations. Unlike broad AI tools, ighthouse provides a **session-centric workspace** where all documents, snapshots, and AI interactions are pinned to a specific context.
 
+## Sample Mock Paper (Automatically Generated)
+
+[demo/mockpaper/mockpaper.pdf](demo/mockpaper/mockpaper.pdf)
+
+The resource to generate the mock paper is in `demo/assignment/`, which contains a mix of text-heavy and diagram-heavy PDFs. The system intelligently chooses the best ingestion method for each page, resulting in a clean Markdown library that serves as the basis for question generation.
+
 ### Core Workflow
 1.  **Ingest**: High-fidelity conversion of PDFs to Markdown. It intelligently chooses between fast text extraction and vision-based conversion (using Ark/Doubao models) to handle complex layouts and diagrams.
 2.  **Generate**: Mock papers are synthesized from your ingested sources. You can control the distribution of Multiple Choice, Short Answer, and Coding questions to match specific exam styles.
@@ -87,6 +93,8 @@ Lighthouse is designed to streamline the academic lifecycle of study materialsâ€
 
 If you just want to preview the UI (no backend, no real actions), a static demo is included in `demo/`.
 
+- Hosted demo: [https://win7.win/HTE-Hackathon-HKUer/demo/index.html](https://win7.win/HTE-Hackathon-HKUer/demo/index.html)
+- 2-minute presentation script: [DEMO_SCRIPT_2MIN.md](DEMO_SCRIPT_2MIN.md)
 - Open `demo/index.html` directly in a browser, or
 - Serve it locally (recommended for consistent asset loading):
    ```bash
