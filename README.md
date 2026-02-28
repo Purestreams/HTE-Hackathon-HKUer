@@ -1,4 +1,4 @@
-[hero](hero.png)
+![Lighthouse Hero](hero.png)
 
 # Lighthouse: EduAI
 
