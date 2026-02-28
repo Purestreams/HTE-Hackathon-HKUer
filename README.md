@@ -77,6 +77,18 @@ Lighthouse is designed to streamline the academic lifecycle of study materialsâ€
    ```
    Navigate to `http://localhost:5173`.
 
+## Static HTML Demo
+
+If you just want to preview the UI (no backend, no real actions), a static demo is included in `demo/`.
+
+- Open `demo/index.html` directly in a browser, or
+- Serve it locally (recommended for consistent asset loading):
+   ```bash
+   cd demo
+   python3 -m http.server 4174 --bind 127.0.0.1
+   ```
+   Then open `http://127.0.0.1:4174/`.
+
 ## Usage Tips
 
 - **Multi-File Ingest**: On the Ingest page, select multiple PDFs to process them in parallel jobs.

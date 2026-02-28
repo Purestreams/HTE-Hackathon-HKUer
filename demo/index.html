@@ -1,0 +1,631 @@
+<!doctype html>
+<html lang="en" class="h-full">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>EduAI (Lighthouse) — Static UI Demo</title>
+    <link rel="icon" href="./assets/favicon.svg" />
+    <link rel="stylesheet" href="./assets/frontui.css" />
+  </head>
+
+  <body class="h-full bg-gray-50">
+    <div class="flex min-h-screen bg-gray-50">
+      <!-- Sidebar -->
+      <aside class="w-64 shrink-0 border-r bg-white">
+        <div class="border-b px-4 py-3">
+          <a href="#dashboard" class="text-lg font-semibold">HTE Learning Platform</a>
+          <div class="mt-1 text-xs text-gray-500">Static demo (no backend)</div>
+        </div>
+
+        <nav class="p-2">
+          <a class="block rounded-md px-3 py-2 text-sm bg-gray-100 font-medium text-gray-900" href="#dashboard">Dashboard</a>
+          <a class="block rounded-md px-3 py-2 text-sm text-gray-700 hover:bg-gray-50" href="#upload">Upload</a>
+          <a class="block rounded-md px-3 py-2 text-sm text-gray-700 hover:bg-gray-50" href="#ingest">PDF Ingest</a>
+          <a class="block rounded-md px-3 py-2 text-sm text-gray-700 hover:bg-gray-50" href="#mockpaper">Mockpaper</a>
+          <a class="block rounded-md px-3 py-2 text-sm text-gray-700 hover:bg-gray-50" href="#validate">Validate</a>
+          <a class="block rounded-md px-3 py-2 text-sm text-gray-700 hover:bg-gray-50" href="#library">Library</a>
+          <a class="block rounded-md px-3 py-2 text-sm text-gray-700 hover:bg-gray-50" href="#chat">Chat</a>
+          <a class="block rounded-md px-3 py-2 text-sm text-gray-700 hover:bg-gray-50" href="#snapshots">Snapshots</a>
+          <a class="block rounded-md px-3 py-2 text-sm text-gray-700 hover:bg-gray-50" href="#jobs">Jobs</a>
+        </nav>
+
+        <div class="border-t p-4 text-xs text-gray-500">
+          Tip: this is a single HTML file. Links scroll to sections.
+        </div>
+      </aside>
+
+      <!-- Main -->
+      <main class="flex min-w-0 flex-1 flex-col">
+        <header class="flex items-center justify-between border-b bg-white px-6 py-3">
+          <div class="text-sm text-gray-600">Backend healthy</div>
+
+          <div class="flex items-center gap-3">
+            <div class="flex items-center gap-2">
+              <div class="text-xs text-gray-500">Session</div>
+              <select class="max-w-56 rounded-md border px-2 py-1 text-sm" disabled>
+                <option>COMP3211 Midterm (demo)</option>
+              </select>
+              <button class="rounded-md border px-2 py-1 text-sm hover:bg-gray-50 disabled:opacity-60" disabled>Delete</button>
+              <details class="relative">
+                <summary class="cursor-pointer select-none rounded-md border px-2 py-1 text-sm hover:bg-gray-50">New</summary>
+                <div class="absolute right-0 z-10 mt-2 w-72 rounded-lg border bg-white p-3 shadow-lg">
+                  <div class="text-sm font-medium text-gray-800">Create session</div>
+                  <input
+                    class="mt-2 w-full rounded-md border px-3 py-2 text-sm"
+                    placeholder="e.g. COMP2119 Midterm"
+                    value=""
+                    disabled
+                  />
+                  <div class="mt-2 flex items-center justify-between gap-2">
+                    <button class="rounded-md bg-gray-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-black disabled:opacity-60" disabled>
+                      Create
+                    </button>
+                    <button class="rounded-md border px-3 py-1.5 text-sm hover:bg-gray-50" disabled>Refresh</button>
+                  </div>
+                  <div class="mt-2 text-xs text-gray-500">All API calls will use this session.</div>
+                </div>
+              </details>
+            </div>
+          </div>
+        </header>
+
+        <div class="min-w-0 flex-1 p-6">
+          <!-- Dashboard -->
+          <section id="dashboard" class="space-y-6">
+            <div>
+              <h1 class="text-2xl font-semibold text-gray-900">Dashboard</h1>
+              <p class="mt-1 text-sm text-gray-600">
+                Upload documents, ingest PDFs, generate mock papers, validate outputs, and export/view your materials.
+              </p>
+              <div class="mt-2 text-xs text-gray-500">Active session: <span class="font-mono">demo</span></div>
+            </div>
+
+            <section class="space-y-3">
+              <div class="text-sm font-semibold text-gray-900">Core workflow</div>
+              <div class="grid gap-4 md:grid-cols-2">
+                <a href="#upload" class="rounded-lg border bg-white p-4 shadow-sm hover:border-gray-300">
+                  <div class="text-lg font-semibold text-gray-900">Upload</div>
+                  <div class="mt-1 text-sm text-gray-600">Upload one or many files (pdf / md / txt) into a category.</div>
+                </a>
+                <a href="#ingest" class="rounded-lg border bg-white p-4 shadow-sm hover:border-gray-300">
+                  <div class="text-lg font-semibold text-gray-900">PDF Ingest</div>
+                  <div class="mt-1 text-sm text-gray-600">Convert PDFs to Markdown; auto-route embedded text vs vision conversion.</div>
+                </a>
+                <a href="#mockpaper" class="rounded-lg border bg-white p-4 shadow-sm hover:border-gray-300">
+                  <div class="text-lg font-semibold text-gray-900">Mockpaper</div>
+                  <div class="mt-1 text-sm text-gray-600">Generate a mock exam with controllable question types.</div>
+                </a>
+                <a href="#validate" class="rounded-lg border bg-white p-4 shadow-sm hover:border-gray-300">
+                  <div class="text-lg font-semibold text-gray-900">Validate</div>
+                  <div class="mt-1 text-sm text-gray-600">Two-model consensus review + sandbox checks; saves a Markdown report.</div>
+                </a>
+              </div>
+            </section>
+
+            <section class="space-y-3">
+              <div class="text-sm font-semibold text-gray-900">Browse &amp; export</div>
+              <div class="grid gap-4 md:grid-cols-2">
+                <a href="#library" class="rounded-lg border bg-white p-4 shadow-sm hover:border-gray-300">
+                  <div class="text-lg font-semibold text-gray-900">Library</div>
+                  <div class="mt-1 text-sm text-gray-600">Browse files, view Markdown/PDF, and generate “View PDF” via pandoc.</div>
+                </a>
+                <a href="#chat" class="rounded-lg border bg-white p-4 shadow-sm hover:border-gray-300">
+                  <div class="text-lg font-semibold text-gray-900">Chat</div>
+                  <div class="mt-1 text-sm text-gray-600">Ask questions across session documents with streaming answers.</div>
+                </a>
+              </div>
+            </section>
+
+            <section class="space-y-3">
+              <div class="text-sm font-semibold text-gray-900">Manage</div>
+              <div class="grid gap-4 md:grid-cols-2">
+                <a href="#snapshots" class="rounded-lg border bg-white p-4 shadow-sm hover:border-gray-300">
+                  <div class="text-lg font-semibold text-gray-900">Snapshots</div>
+                  <div class="mt-1 text-sm text-gray-600">Save and restore session source snapshots for safe iteration.</div>
+                </a>
+                <a href="#jobs" class="rounded-lg border bg-white p-4 shadow-sm hover:border-gray-300">
+                  <div class="text-lg font-semibold text-gray-900">Jobs</div>
+                  <div class="mt-1 text-sm text-gray-600">Inspect job history, progress logs, and results.</div>
+                </a>
+              </div>
+            </section>
+
+            <div class="rounded-lg border bg-white p-4 shadow-sm">
+              <div class="flex items-center justify-between">
+                <div class="font-semibold">Recent jobs</div>
+                <a class="text-sm text-blue-700 hover:underline" href="#jobs">Open Jobs</a>
+              </div>
+              <ul class="mt-3 divide-y">
+                <li class="py-2 text-sm">
+                  <span class="font-mono">job_demo_001</span>
+                  <span class="ml-2 rounded bg-gray-100 px-2 py-0.5 text-xs">pdf_ingest</span>
+                </li>
+                <li class="py-2 text-sm">
+                  <span class="font-mono">job_demo_002</span>
+                  <span class="ml-2 rounded bg-gray-100 px-2 py-0.5 text-xs">mockpaper</span>
+                </li>
+                <li class="py-2 text-sm">
+                  <span class="font-mono">job_demo_003</span>
+                  <span class="ml-2 rounded bg-gray-100 px-2 py-0.5 text-xs">validate</span>
+                </li>
+              </ul>
+            </div>
+          </section>
+
+          <div class="my-8 border-t"></div>
+
+          <!-- Upload -->
+          <section id="upload" class="space-y-6">
+            <div>
+              <h2 class="text-xl font-semibold text-gray-900">Upload</h2>
+              <p class="mt-1 text-sm text-gray-600">Static mock of the multi-file upload UI.</p>
+            </div>
+
+            <div class="rounded-lg border bg-white p-4 shadow-sm space-y-4">
+              <div class="grid gap-4 md:grid-cols-3">
+                <div>
+                  <div class="text-sm font-medium text-gray-800">Category</div>
+                  <select class="mt-1 w-full rounded-md border px-3 py-2 text-sm" disabled>
+                    <option>lectureNote</option>
+                    <option>tutorial</option>
+                    <option>pastpaper</option>
+                  </select>
+                </div>
+                <div class="md:col-span-2">
+                  <div class="text-sm font-medium text-gray-800">Files</div>
+                  <input class="mt-1 w-full rounded-md border px-3 py-2 text-sm" type="file" multiple disabled />
+                  <div class="mt-1 text-xs text-gray-500">Choose multiple files; uploads run sequentially.</div>
+                </div>
+              </div>
+
+              <div class="flex items-center gap-2">
+                <button class="rounded-md bg-gray-900 px-4 py-2 text-sm font-medium text-white hover:bg-black disabled:opacity-60" disabled>
+                  Upload
+                </button>
+                <button class="rounded-md border px-4 py-2 text-sm hover:bg-gray-50 disabled:opacity-60" disabled>
+                  Clear
+                </button>
+              </div>
+
+              <div class="overflow-x-auto">
+                <table class="min-w-full text-sm">
+                  <thead class="text-left text-xs text-gray-500">
+                    <tr>
+                      <th class="py-2 pr-4">File</th>
+                      <th class="py-2 pr-4">Status</th>
+                      <th class="py-2 pr-4">Saved path</th>
+                    </tr>
+                  </thead>
+                  <tbody class="divide-y">
+                    <tr>
+                      <td class="py-2 pr-4 font-mono">lecture1.pdf</td>
+                      <td class="py-2 pr-4"><span class="rounded bg-green-50 px-2 py-0.5 text-xs text-green-700">ok</span></td>
+                      <td class="py-2 pr-4 text-gray-600">sources/lectureNote/lecture1.pdf</td>
+                    </tr>
+                    <tr>
+                      <td class="py-2 pr-4 font-mono">tutorial3.md</td>
+                      <td class="py-2 pr-4"><span class="rounded bg-yellow-50 px-2 py-0.5 text-xs text-yellow-700">queued</span></td>
+                      <td class="py-2 pr-4 text-gray-400">—</td>
+                    </tr>
+                    <tr>
+                      <td class="py-2 pr-4 font-mono">notes.txt</td>
+                      <td class="py-2 pr-4"><span class="rounded bg-red-50 px-2 py-0.5 text-xs text-red-700">error</span></td>
+                      <td class="py-2 pr-4 text-gray-600">(permission denied)</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </section>
+
+          <div class="my-8 border-t"></div>
+
+          <!-- Ingest -->
+          <section id="ingest" class="space-y-6">
+            <div>
+              <h2 class="text-xl font-semibold text-gray-900">PDF Ingest</h2>
+              <p class="mt-1 text-sm text-gray-600">Static mock of multi-PDF ingest jobs.</p>
+            </div>
+
+            <div class="rounded-lg border bg-white p-4 shadow-sm space-y-4">
+              <div class="grid gap-4 md:grid-cols-3">
+                <div>
+                  <div class="text-sm font-medium text-gray-800">Output name</div>
+                  <input class="mt-1 w-full rounded-md border px-3 py-2 text-sm" placeholder="out_name" disabled />
+                  <div class="mt-1 text-xs text-gray-500">Disabled when multiple PDFs selected.</div>
+                </div>
+                <div class="md:col-span-2">
+                  <div class="text-sm font-medium text-gray-800">PDF files</div>
+                  <input class="mt-1 w-full rounded-md border px-3 py-2 text-sm" type="file" multiple disabled />
+                </div>
+              </div>
+
+              <button class="rounded-md bg-gray-900 px-4 py-2 text-sm font-medium text-white hover:bg-black disabled:opacity-60" disabled>
+                Create jobs
+              </button>
+
+              <div class="grid gap-3 md:grid-cols-2">
+                <div class="rounded-lg border bg-white p-4 shadow-sm">
+                  <div class="flex items-center justify-between">
+                    <div class="font-semibold">Job: job_demo_ingest_01</div>
+                    <span class="rounded bg-blue-50 px-2 py-0.5 text-xs text-blue-700">running</span>
+                  </div>
+                  <div class="mt-2 text-xs text-gray-500">Converting lecture2.pdf → lecture2.md</div>
+                  <div class="mt-3 h-2 w-full overflow-hidden rounded bg-gray-100">
+                    <div class="h-2 w-2/3 rounded bg-gray-900"></div>
+                  </div>
+                </div>
+
+                <div class="rounded-lg border bg-white p-4 shadow-sm">
+                  <div class="flex items-center justify-between">
+                    <div class="font-semibold">Job: job_demo_ingest_02</div>
+                    <span class="rounded bg-green-50 px-2 py-0.5 text-xs text-green-700">done</span>
+                  </div>
+                  <div class="mt-2 text-xs text-gray-500">Converting lecture3.pdf → lecture3.md</div>
+                  <div class="mt-3 h-2 w-full overflow-hidden rounded bg-gray-100">
+                    <div class="h-2 w-full rounded bg-gray-900"></div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <div class="my-8 border-t"></div>
+
+          <!-- Mockpaper -->
+          <section id="mockpaper" class="space-y-6">
+            <div>
+              <h2 class="text-xl font-semibold text-gray-900">Mockpaper</h2>
+              <p class="mt-1 text-sm text-gray-600">Static mock of mockpaper configuration + output preview.</p>
+            </div>
+
+            <div class="grid gap-4 md:grid-cols-2">
+              <div class="rounded-lg border bg-white p-4 shadow-sm space-y-3">
+                <div class="text-sm font-semibold text-gray-900">Generation settings</div>
+
+                <label class="block">
+                  <div class="text-sm text-gray-700">Topic / focus</div>
+                  <input class="mt-1 w-full rounded-md border px-3 py-2 text-sm" placeholder="e.g. Concurrency + Scheduling" disabled />
+                </label>
+
+                <div class="grid gap-3 md:grid-cols-3">
+                  <label class="block">
+                    <div class="text-sm text-gray-700">MCQ</div>
+                    <input class="mt-1 w-full rounded-md border px-3 py-2 text-sm" value="10" disabled />
+                  </label>
+                  <label class="block">
+                    <div class="text-sm text-gray-700">Short</div>
+                    <input class="mt-1 w-full rounded-md border px-3 py-2 text-sm" value="6" disabled />
+                  </label>
+                  <label class="block">
+                    <div class="text-sm text-gray-700">Coding</div>
+                    <input class="mt-1 w-full rounded-md border px-3 py-2 text-sm" value="2" disabled />
+                  </label>
+                </div>
+
+                <button class="rounded-md bg-gray-900 px-4 py-2 text-sm font-medium text-white hover:bg-black disabled:opacity-60" disabled>
+                  Generate
+                </button>
+              </div>
+
+              <div class="rounded-lg border bg-white p-4 shadow-sm">
+                <div class="flex items-center justify-between">
+                  <div class="text-sm font-semibold text-gray-900">Preview</div>
+                  <span class="rounded bg-gray-100 px-2 py-0.5 text-xs">mockpaper.md</span>
+                </div>
+                <div class="mt-3 space-y-3 text-sm text-gray-800">
+                  <div class="font-semibold">Q1 (MCQ)</div>
+                  <div>Which scheduling policy is preemptive by default?</div>
+                  <div class="pl-4">
+                    <div>A. FCFS</div>
+                    <div>B. SJF</div>
+                    <div class="font-medium">C. Round-robin</div>
+                    <div>D. FIFO</div>
+                  </div>
+
+                  <div class="font-semibold">Q2 (Short)</div>
+                  <div>Explain the difference between a mutex and a semaphore.</div>
+
+                  <div class="rounded-md bg-gray-50 p-3 font-mono text-xs">
+                    // coding question stub
+                    function solve(input) { /* ... */ }
+                  </div>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <div class="my-8 border-t"></div>
+
+          <!-- Validate -->
+          <section id="validate" class="space-y-6">
+            <div>
+              <h2 class="text-xl font-semibold text-gray-900">Validate</h2>
+              <p class="mt-1 text-sm text-gray-600">Static mock of the consensus validate flow and report output.</p>
+            </div>
+
+            <div class="grid gap-4 md:grid-cols-2">
+              <div class="rounded-lg border bg-white p-4 shadow-sm space-y-3">
+                <div class="text-sm font-semibold text-gray-900">Inputs</div>
+                <label class="block">
+                  <div class="text-sm text-gray-700">Mockpaper path</div>
+                  <input class="mt-1 w-full rounded-md border px-3 py-2 text-sm" value="sources/mockpaper/mockpaper.md" disabled />
+                </label>
+                <label class="block">
+                  <div class="text-sm text-gray-700">Enable AI review</div>
+                  <div class="mt-1 flex items-center gap-2">
+                    <input type="checkbox" checked disabled />
+                    <span class="text-sm text-gray-600">Main + Sub model consensus</span>
+                  </div>
+                </label>
+                <button class="rounded-md bg-gray-900 px-4 py-2 text-sm font-medium text-white hover:bg-black disabled:opacity-60" disabled>
+                  Run validate
+                </button>
+              </div>
+
+              <div class="rounded-lg border bg-white p-4 shadow-sm">
+                <div class="text-sm font-semibold text-gray-900">Result</div>
+                <div class="mt-2 space-y-2 text-sm">
+                  <div>
+                    <span class="rounded bg-green-50 px-2 py-0.5 text-xs text-green-700">PASS</span>
+                    <span class="ml-2 text-gray-700">Sandbox checks completed</span>
+                  </div>
+                  <div>
+                    <span class="rounded bg-yellow-50 px-2 py-0.5 text-xs text-yellow-700">REVIEW</span>
+                    <span class="ml-2 text-gray-700">2 issues suggested by consensus</span>
+                  </div>
+
+                  <div class="mt-4 rounded-md bg-gray-50 p-3">
+                    <div class="text-xs font-semibold text-gray-700">Saved report</div>
+                    <div class="mt-1 font-mono text-xs text-gray-700">validate_logs/validate_job_demo_003_ai_log.md</div>
+                    <div class="mt-2 text-xs text-gray-500">Contains model communication + final conclusion in Markdown.</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <div class="my-8 border-t"></div>
+
+          <!-- Library -->
+          <section id="library" class="space-y-6">
+            <div>
+              <h2 class="text-xl font-semibold text-gray-900">Library</h2>
+              <p class="mt-1 text-sm text-gray-600">Static mock of browsing sources, viewing Markdown/PDF, and “View PDF” for Markdown.</p>
+            </div>
+
+            <div class="rounded-lg border bg-white p-4 shadow-sm">
+              <div class="flex items-center justify-between">
+                <div class="text-sm font-semibold text-gray-900">sources/</div>
+                <button class="rounded-md border px-3 py-1.5 text-sm hover:bg-gray-50 disabled:opacity-60" disabled>Refresh</button>
+              </div>
+
+              <div class="mt-3 overflow-x-auto">
+                <table class="min-w-full text-sm">
+                  <thead class="text-left text-xs text-gray-500">
+                    <tr>
+                      <th class="py-2 pr-4">Name</th>
+                      <th class="py-2 pr-4">Type</th>
+                      <th class="py-2 pr-4">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody class="divide-y">
+                    <tr>
+                      <td class="py-2 pr-4">lectureNote/</td>
+                      <td class="py-2 pr-4 text-gray-600">dir</td>
+                      <td class="py-2 pr-4">
+                        <a class="text-blue-700 hover:underline" href="#library">Open</a>
+                      </td>
+                    </tr>
+                    <tr>
+                      <td class="py-2 pr-4">lecture1.md</td>
+                      <td class="py-2 pr-4 text-gray-600">file</td>
+                      <td class="py-2 pr-4 flex flex-wrap gap-3">
+                        <a class="text-blue-700 hover:underline" href="#view-md">View</a>
+                        <a class="text-blue-700 hover:underline" href="#view-pdf">View PDF</a>
+                        <button class="text-red-700 hover:underline" disabled>Delete</button>
+                      </td>
+                    </tr>
+                    <tr>
+                      <td class="py-2 pr-4">slides.pdf</td>
+                      <td class="py-2 pr-4 text-gray-600">file</td>
+                      <td class="py-2 pr-4 flex flex-wrap gap-3">
+                        <a class="text-blue-700 hover:underline" href="#view-pdf">Open</a>
+                        <button class="text-red-700 hover:underline" disabled>Delete</button>
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+
+              <div class="mt-4 rounded-md border p-3">
+                <div class="flex items-center justify-between">
+                  <div class="text-sm font-medium text-gray-800">Generating PDF…</div>
+                  <div class="text-xs text-gray-500">pandoc</div>
+                </div>
+                <div class="mt-2 h-2 w-full overflow-hidden rounded bg-gray-100">
+                  <div class="h-2 w-4/5 rounded bg-gray-900"></div>
+                </div>
+                <div class="mt-1 text-xs text-gray-500">(indeterminate progress)</div>
+              </div>
+            </div>
+
+            <div class="grid gap-4 md:grid-cols-2">
+              <section id="view-md" class="rounded-lg border bg-white p-4 shadow-sm">
+                <div class="flex items-center justify-between">
+                  <div class="text-sm font-semibold text-gray-900">View Markdown</div>
+                  <span class="rounded bg-gray-100 px-2 py-0.5 text-xs">lecture1.md</span>
+                </div>
+                <div class="mt-3 space-y-3 text-sm text-gray-800">
+                  <div class="text-gray-600"># Concurrency — Quick Notes</div>
+                  <div>✓ Deadlock conditions: mutual exclusion, hold-and-wait, no preemption, circular wait.</div>
+                  <div class="rounded-md bg-gray-50 p-3 font-mono text-xs">print('hello world')</div>
+                </div>
+              </section>
+
+              <section id="view-pdf" class="rounded-lg border bg-white p-4 shadow-sm">
+                <div class="flex items-center justify-between">
+                  <div class="text-sm font-semibold text-gray-900">View PDF</div>
+                  <span class="rounded bg-gray-100 px-2 py-0.5 text-xs">slides.pdf</span>
+                </div>
+                <div class="mt-3 rounded-md bg-gray-50 p-6 text-center text-sm text-gray-600">
+                  PDF viewer placeholder (static demo)
+                </div>
+              </section>
+            </div>
+          </section>
+
+          <div class="my-8 border-t"></div>
+
+          <!-- Chat -->
+          <section id="chat" class="space-y-6">
+            <div>
+              <h2 class="text-xl font-semibold text-gray-900">Chat</h2>
+              <p class="mt-1 text-sm text-gray-600">Static mock of the streaming chat UI (messages only).</p>
+            </div>
+
+            <div class="rounded-lg border bg-white shadow-sm overflow-hidden">
+              <div class="p-4 space-y-3">
+                <div class="max-w-3xl rounded-lg bg-gray-50 p-3 text-sm text-gray-800">
+                  <div class="text-xs text-gray-500">You</div>
+                  Summarize the key points about deadlocks.
+                </div>
+                <div class="max-w-3xl rounded-lg border p-3 text-sm text-gray-800">
+                  <div class="text-xs text-gray-500">EduAI</div>
+                  Deadlocks require four conditions: mutual exclusion, hold-and-wait, no preemption, and circular wait. To mitigate them, you can break at least one condition (e.g., request ordering, timeouts, or preemption).
+                </div>
+              </div>
+
+              <div class="border-t bg-white p-4">
+                <div class="flex items-center gap-2">
+                  <input class="flex-1 rounded-md border px-3 py-2 text-sm" placeholder="Ask a question…" disabled />
+                  <button class="rounded-md bg-gray-900 px-4 py-2 text-sm font-medium text-white hover:bg-black disabled:opacity-60" disabled>
+                    Send
+                  </button>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <div class="my-8 border-t"></div>
+
+          <!-- Snapshots -->
+          <section id="snapshots" class="space-y-6">
+            <div>
+              <h2 class="text-xl font-semibold text-gray-900">Snapshots</h2>
+              <p class="mt-1 text-sm text-gray-600">Static mock of snapshot list + create action.</p>
+            </div>
+
+            <div class="rounded-lg border bg-white p-4 shadow-sm space-y-4">
+              <div class="flex items-center justify-between">
+                <div class="text-sm font-semibold text-gray-900">Snapshots</div>
+                <button class="rounded-md bg-gray-900 px-4 py-2 text-sm font-medium text-white hover:bg-black disabled:opacity-60" disabled>
+                  Create snapshot
+                </button>
+              </div>
+
+              <ul class="divide-y text-sm">
+                <li class="py-3 flex items-center justify-between">
+                  <div>
+                    <div class="font-medium text-gray-900">Before mockpaper v2</div>
+                    <div class="text-xs text-gray-500">2026-02-28 20:18</div>
+                  </div>
+                  <div class="flex items-center gap-3">
+                    <button class="rounded-md border px-3 py-1.5 text-sm hover:bg-gray-50 disabled:opacity-60" disabled>Restore</button>
+                    <button class="text-red-700 hover:underline" disabled>Delete</button>
+                  </div>
+                </li>
+                <li class="py-3 flex items-center justify-between">
+                  <div>
+                    <div class="font-medium text-gray-900">After ingest lectures</div>
+                    <div class="text-xs text-gray-500">2026-02-28 19:40</div>
+                  </div>
+                  <div class="flex items-center gap-3">
+                    <button class="rounded-md border px-3 py-1.5 text-sm hover:bg-gray-50 disabled:opacity-60" disabled>Restore</button>
+                    <button class="text-red-700 hover:underline" disabled>Delete</button>
+                  </div>
+                </li>
+              </ul>
+            </div>
+          </section>
+
+          <div class="my-8 border-t"></div>
+
+          <!-- Jobs -->
+          <section id="jobs" class="space-y-6">
+            <div>
+              <h2 class="text-xl font-semibold text-gray-900">Jobs</h2>
+              <p class="mt-1 text-sm text-gray-600">Static mock of job table + job detail cards.</p>
+            </div>
+
+            <div class="rounded-lg border bg-white p-4 shadow-sm space-y-4">
+              <div class="overflow-x-auto">
+                <table class="min-w-full text-sm">
+                  <thead class="text-left text-xs text-gray-500">
+                    <tr>
+                      <th class="py-2 pr-4">Job ID</th>
+                      <th class="py-2 pr-4">Type</th>
+                      <th class="py-2 pr-4">Status</th>
+                      <th class="py-2 pr-4">Updated</th>
+                    </tr>
+                  </thead>
+                  <tbody class="divide-y">
+                    <tr>
+                      <td class="py-2 pr-4 font-mono">job_demo_001</td>
+                      <td class="py-2 pr-4">pdf_ingest</td>
+                      <td class="py-2 pr-4"><span class="rounded bg-green-50 px-2 py-0.5 text-xs text-green-700">done</span></td>
+                      <td class="py-2 pr-4 text-gray-600">just now</td>
+                    </tr>
+                    <tr>
+                      <td class="py-2 pr-4 font-mono">job_demo_002</td>
+                      <td class="py-2 pr-4">mockpaper</td>
+                      <td class="py-2 pr-4"><span class="rounded bg-blue-50 px-2 py-0.5 text-xs text-blue-700">running</span></td>
+                      <td class="py-2 pr-4 text-gray-600">1m ago</td>
+                    </tr>
+                    <tr>
+                      <td class="py-2 pr-4 font-mono">job_demo_003</td>
+                      <td class="py-2 pr-4">validate</td>
+                      <td class="py-2 pr-4"><span class="rounded bg-gray-100 px-2 py-0.5 text-xs">queued</span></td>
+                      <td class="py-2 pr-4 text-gray-600">3m ago</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+
+              <div class="grid gap-3 md:grid-cols-2">
+                <div class="rounded-lg border bg-white p-4 shadow-sm">
+                  <div class="flex items-center justify-between">
+                    <div class="font-semibold">Job: job_demo_002</div>
+                    <span class="rounded bg-blue-50 px-2 py-0.5 text-xs text-blue-700">running</span>
+                  </div>
+                  <div class="mt-3 text-xs text-gray-500">Streaming logs…</div>
+                  <div class="mt-2 rounded-md bg-gray-50 p-3 font-mono text-xs text-gray-700">
+                    [00:00] loading sources…<br />
+                    [00:03] generating questions…<br />
+                    [00:08] drafting answers…
+                  </div>
+                </div>
+
+                <div class="rounded-lg border bg-white p-4 shadow-sm">
+                  <div class="flex items-center justify-between">
+                    <div class="font-semibold">Job: job_demo_001</div>
+                    <span class="rounded bg-green-50 px-2 py-0.5 text-xs text-green-700">done</span>
+                  </div>
+                  <div class="mt-2 text-xs text-gray-500">Result: sources/lectureNote/lecture1.md</div>
+                  <div class="mt-3 flex items-center gap-3">
+                    <a class="text-sm text-blue-700 hover:underline" href="#view-md">View Markdown</a>
+                    <a class="text-sm text-blue-700 hover:underline" href="#view-pdf">View PDF</a>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <div class="mt-10 text-xs text-gray-400">
+            Demo note: This folder is intentionally static — it’s for UI preview only.
+          </div>
+        </div>
+      </main>
+    </div>
+  </body>
+</html>
