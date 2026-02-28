@@ -6,19 +6,17 @@ https://www.notion.so/HTE-Topics-31512e50c12980678949f994815c84be?source=copy_li
 
 ### Environment Setup
 
-1. Create a `.env` file in the project root:
-```bash
-export ANTHROPIC_BASE_URL=https://api.minimax.io/anthropic
-export ANTHROPIC_API_KEY=sk-api-pX-J83ZFK4sVH33L7yB5JCsSD8KA2TXylwAFVagln-54frDjdUxIzOTLe7ZcyADOn-UtRcc4ZuYMRFO-0j7ZcN_gLCqlkX0fkeZ4bFvF8Vzeyeae96WBZ_A
-export EXA_API_KEY=your_exa_api_key_here
-```
+1. Create a `.env` file (do not commit it) or export env vars in your shell.
 
-2. Or create a `.env` file:
+2. Example `.env` (copy from `.env.example`):
 ```env
 ANTHROPIC_BASE_URL=https://api.minimax.io/anthropic
-ANTHROPIC_API_KEY=sk-api-pX-J83ZFK4sVH33L7yB5JCsSD8KA2TXylwAFVagln-54frDjdUxIzOTLe7ZcyADOn-UtRcc4ZuYMRFO-0j7ZcN_gLCqlkX0fkeZ4bFvF8Vzeyeae96WBZ_A
-EXA_API_KEY=your_exa_api_key_here
+ANTHROPIC_API_KEY=your_anthropic_key_here
+EXA_API_KEY=your_exa_key_here
+ARK_API_KEY=your_ark_key_here
 ```
+
+Security note: never put real API keys in the repo (README, code, or committed `.env`).
 
 ## Web Search Module
 

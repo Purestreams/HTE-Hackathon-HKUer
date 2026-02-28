@@ -3,6 +3,9 @@ __pycache__/
 *.py[cod]
 *$py.class
 
+output/
+sources/
+
 # C extensions
 *.so
 
@@ -67,3 +70,8 @@ dmypy.json
 
 # MacOS
 .DS_Store
+
+# Local env files (do not commit secrets)
+.env
+.env.*
+!.env.example
