@@ -19,8 +19,12 @@ export function ValidatePage() {
   useEffect(() => {
     ;(async () => {
       try {
-        const res = await apiFetch<{ ok: true; models: string[] }>('/api/models')
-        setModels(res.models || [])
+        const res = await apiFetch<{ ok: true; models: string[]; text_models: string[]; main_model?: string }>('/api/models')
+        const merged = Array.from(new Set([...(res.models || []), ...(res.text_models || [])]))
+        setModels(merged)
+        if (!model && res.main_model && merged.includes(res.main_model)) {
+          setModel(res.main_model)
+        }
       } catch {
         setModels([])
       }

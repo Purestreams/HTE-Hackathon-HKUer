@@ -66,6 +66,26 @@ export function SessionSelector() {
     }
   }
 
+  async function removeSession(id: string) {
+    if (id === 'repo') {
+      setError('Default session cannot be deleted')
+      return
+    }
+    const ok = window.confirm(`Delete session ${id}? This will remove all its files.`)
+    if (!ok) return
+
+    setError(null)
+    try {
+      await apiFetch<{ ok: true }>(`/api/sessions/${id}`, { method: 'DELETE' })
+      await refresh()
+      if (selected === id) {
+        await activate('repo')
+      }
+    } catch (e: any) {
+      setError(String(e?.message ?? e))
+    }
+  }
+
   return (
     <div className="flex items-center gap-2">
       <div className="text-xs text-gray-500">Session</div>
@@ -83,6 +103,16 @@ export function SessionSelector() {
         ))}
         {sessions.length === 0 && <option value="repo">repo</option>}
       </select>
+
+      <button
+        className="rounded-md border px-2 py-1 text-sm hover:bg-gray-50 disabled:opacity-60"
+        type="button"
+        onClick={() => removeSession(selected)}
+        disabled={loading || selected === 'repo'}
+        title={selected === 'repo' ? 'Default session cannot be deleted' : 'Delete session'}
+      >
+        Delete
+      </button>
 
       <details className="relative">
         <summary className="cursor-pointer select-none rounded-md border px-2 py-1 text-sm hover:bg-gray-50">New</summary>

@@ -36,6 +36,25 @@ SESSION_HEADER = "X-HTE-Session"
 # data/sessions/<session_id>/sources (and snapshots under data/sessions/<session_id>/snapshots).
 DEFAULT_SESSION_ID = "repo"  # historical name; now stored under data/sessions/repo/
 
+# Model catalogs
+ARK_LIST_OF_MODELS = [
+    "doubao-seed-2-0-pro-260215",
+    "doubao-seed-1-8-251228",
+    "deepseek-v3-2-251201",
+]
+ARK_MAIN_MODEL = "doubao-seed-1-8-251228"
+ARK_LIST_OF_THINKING_MODELS = [
+    "doubao-seed-2-0-pro-260215",
+    "deepseek-v3-2-251201",
+]
+ARK_LIST_OF_IMAGE_MODELS = [
+    "doubao-seed-2-0-pro-260215",
+    "doubao-seed-1-8-251228",
+]
+
+# MiniMax text model
+MINIMAX_TEXT_MODELS = ["MiniMax-M2.5"]
+
 
 def _safe_session_id(value: str) -> str:
     value = (value or "").strip()
@@ -314,28 +333,35 @@ def _sha256_file(path: Path) -> str:
     return h.hexdigest()
 
 
-def _get_available_models() -> List[str]:
+def _get_available_models() -> Dict[str, List[str] | str]:
+    # Base catalog (explicit per requirement)
+    models = list(ARK_LIST_OF_MODELS)
+    thinking_models = list(ARK_LIST_OF_THINKING_MODELS)
+    image_models = list(ARK_LIST_OF_IMAGE_MODELS)
+    text_models = list(MINIMAX_TEXT_MODELS)
+    main_model = ARK_MAIN_MODEL
+
+    # Optional env overrides to extend lists
     raw = str(os.environ.get("AVAILABLE_MODELS") or os.environ.get("MODEL_CHOICES") or "").strip()
-    models: List[str] = []
     if raw:
         for part in re.split(r"[\n,;]+", raw):
             p = part.strip()
-            if p:
+            if p and p not in models:
                 models.append(p)
-    # Fallback to known defaults if env not set
-    for k in ("MOCKPAPER_MODEL", "ARK_MODEL"):
-        v = str(os.environ.get(k) or "").strip()
-        if v:
-            models.append(v)
-    # De-duplicate while preserving order
-    seen = set()
-    out: List[str] = []
-    for m in models:
-        if m in seen:
-            continue
-        seen.add(m)
-        out.append(m)
-    return out
+
+    env_main = str(os.environ.get("MOCKPAPER_MODEL") or os.environ.get("ARK_MODEL") or "").strip()
+    if env_main:
+        main_model = env_main
+        if env_main not in models and env_main not in text_models:
+            models.append(env_main)
+
+    return {
+        "models": models,
+        "thinking_models": thinking_models,
+        "image_models": image_models,
+        "text_models": text_models,
+        "main_model": main_model,
+    }
 
 
 @dataclass
@@ -481,6 +507,36 @@ async def activate_session(session_id: str):
     return jsonify({"ok": True, "active": session_id})
 
 
+@app.delete("/api/sessions/<session_id>")
+async def delete_session(session_id: str):
+    try:
+        session_id = _safe_session_id(session_id)
+    except Exception:
+        return _json_error("Invalid session id", status=400)
+
+    if session_id == DEFAULT_SESSION_ID:
+        return _json_error("Cannot delete default session", status=400)
+
+    sdir = _session_dir(session_id)
+    sdir = _ensure_under_dir(sdir, SESSIONS_DIR)
+    if not sdir.exists() or not sdir.is_dir():
+        return _json_error("Session not found", status=404)
+
+    try:
+        import shutil
+
+        shutil.rmtree(sdir)
+    except Exception as e:
+        return _json_error(str(e), status=500)
+
+    # If we deleted the active session, switch to default
+    if _get_active_session_id() == session_id:
+        _ensure_session_scaffold(DEFAULT_SESSION_ID, name="Default", kind="isolated")
+        _set_active_session_id(DEFAULT_SESSION_ID)
+
+    return jsonify({"ok": True, "deleted": session_id})
+
+
 @app.get("/api/categories")
 async def list_categories():
     return jsonify({"ok": True, "categories": ALLOWED_CATEGORIES})
@@ -488,7 +544,7 @@ async def list_categories():
 
 @app.get("/api/models")
 async def list_models():
-    return jsonify({"ok": True, "models": _get_available_models()})
+    return jsonify({"ok": True, **_get_available_models()})
 
 
 @app.post("/api/upload")
@@ -549,6 +605,8 @@ async def upload():
                 }
             if request.form.get("model"):
                 data["model"] = request.form.get("model")
+            else:
+                data["model"] = _get_available_models()["main_model"]
             if request.form.get("out_name"):
                 data["out_name"] = request.form.get("out_name")
 
@@ -820,9 +878,11 @@ def _ingest_pdf_job(job_id: str, params: Dict[str, Any]) -> Dict[str, Any]:
     dpi = int(params.get("dpi") or 300)
     model = str(
         params.get("model")
-        or os.environ.get("MOCKPAPER_MODEL")
+        or _get_available_models()["main_model"]
         or os.environ.get("ARK_MODEL", "doubao-seed-1-8-251228")
     )
+    if model not in _get_available_models()["image_models"]:
+        raise ValueError("PDF ingest requires a vision-capable model.")
     allow_image_heavy = bool(params.get("allow_image_heavy") or False)
 
     out_name = str(params.get("out_name") or (pdf_path.stem + ".md"))
@@ -934,7 +994,7 @@ def _mockpaper_job(job_id: str, params: Dict[str, Any]) -> Dict[str, Any]:
 
     model = str(
         params.get("model")
-        or os.environ.get("MOCKPAPER_MODEL")
+        or _get_available_models()["main_model"]
         or os.environ.get("ARK_MODEL", "doubao-seed-1-8-251228")
     )
     max_pages = params.get("max_pages")
